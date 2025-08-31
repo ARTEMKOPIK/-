@@ -57,6 +57,9 @@ namespace MaxTelegramBot
         // Управление ресурсами для множественных браузеров
         private static readonly SemaphoreSlim _browserSemaphore = new SemaphoreSlim(30, 30); // Максимум 30 браузеров
 
+        // Таймеры ожидания кода авторизации по пользователям
+        private static readonly Dictionary<long, CancellationTokenSource> _authTimeoutCtsByUser = new();
+
         private enum BroadcastMode { None, Copy, Forward }
         private static BroadcastMode _awaitingBroadcastMode = BroadcastMode.None; // ожидание сообщения для рассылки
         private static bool _isBroadcastInProgress = false; // флаг активной рассылки
@@ -95,6 +98,52 @@ namespace MaxTelegramBot
                 if (System.IO.File.Exists(p)) return p;
             }
             return null;
+        }
+
+        private static void StartAuthorizationTimeout(long userId, long chatId)
+        {
+            CancelAuthorizationTimeout(userId);
+            var cts = new CancellationTokenSource();
+            _authTimeoutCtsByUser[userId] = cts;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(5), cts.Token);
+                    if (!_awaitingCodeSessionDirByUser.TryGetValue(userId, out var userDataDir)) return;
+
+                    _awaitingCodeSessionDirByUser.Remove(userId);
+                    _userPhoneNumbers.Remove(userId);
+                    try
+                    {
+                        await using var cdp = await MaxWebAutomation.ConnectAsync(userDataDir, "web.max.ru");
+                        await cdp.CloseBrowserAsync();
+                    }
+                    catch { }
+
+                    _authTimeoutCtsByUser.Remove(userId);
+
+                    try
+                    {
+                        await _botClient.SendTextMessageAsync(chatId, "⏱️ Авторизация отменена: время ожидания истекло.");
+                    }
+                    catch { }
+                }
+                catch (TaskCanceledException)
+                {
+                    // Таймер был отменён
+                }
+            });
+        }
+
+        private static void CancelAuthorizationTimeout(long userId)
+        {
+            if (_authTimeoutCtsByUser.TryGetValue(userId, out var cts))
+            {
+                try { cts.Cancel(); } catch { }
+                _authTimeoutCtsByUser.Remove(userId);
+            }
         }
 
         private static async Task<string> LaunchMaxWebAsync(string phone)
@@ -517,14 +566,15 @@ namespace MaxTelegramBot
 						if (codeScreenFound)
 						{
 							Console.WriteLine("[MAX] 🎯 ЭКРАН КОДА ОБНАРУЖЕН! Запрашиваю код у пользователя");
-							_awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
-							_userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
-							try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа."); } catch {}
-							return; // Выходим из функции, так как код уже найден
-						}
- 					}
- 					catch (Exception ex)
- 					{
+                                                        _awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
+                                                        _userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
+                                                        StartAuthorizationTimeout(telegramUserId, chatId);
+                                                        try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа."); } catch {}
+                                                        return; // Выходим из функции, так как код уже найден
+                                                }
+                                        }
+                                        catch (Exception ex)
+                                        {
  						Console.WriteLine($"[MAX] Ошибка проверки экрана кода: {ex.Message}");
  					}
  				}
@@ -738,32 +788,35 @@ namespace MaxTelegramBot
 				Console.WriteLine($"[MAX] Завершил ожидание экрана кода. Результат: {seen}");
 				if (seen)
 				{
-					Console.WriteLine("[MAX] Обнаружено сообщение о коде подтверждения");
-					_awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
-					_userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
-					try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа."); } catch {}
-				}
-				else
-				{
-					Console.WriteLine("[MAX] Не дождался экрана ввода кода, отправляю запрос на код по таймауту");
-					_awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
-					_userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
-					try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа."); } catch {}
-				}
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"[MAX] Ошибка автозаполнения номера: {ex.Message}");
-				// На случай падения CDP всё равно попросим код, если пользователь уже нажал Войти
-				try
-				{
-					_awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
-					_userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
-					await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа.");
-				}
-				catch {}
-			}
-		}
+                                        Console.WriteLine("[MAX] Обнаружено сообщение о коде подтверждения");
+                                        _awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
+                                        _userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
+                                        StartAuthorizationTimeout(telegramUserId, chatId);
+                                        try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа."); } catch {}
+                                }
+                                else
+                                {
+                                        Console.WriteLine("[MAX] Не дождался экрана ввода кода, отправляю запрос на код по таймауту");
+                                        _awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
+                                        _userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
+                                        StartAuthorizationTimeout(telegramUserId, chatId);
+                                        try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа."); } catch {}
+                                }
+                        }
+                        catch (Exception ex)
+                        {
+                                Console.WriteLine($"[MAX] Ошибка автозаполнения номера: {ex.Message}");
+                                // На случай падения CDP всё равно попросим код, если пользователь уже нажал Войти
+                                try
+                                {
+                                        _awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
+                                        _userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
+                                        StartAuthorizationTimeout(telegramUserId, chatId);
+                                        await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа.");
+                                }
+                                catch {}
+                        }
+                }
 
         private static async Task<bool> TryHandleLoginCodeAsync(Message message, CancellationToken cancellationToken)
         {
@@ -891,8 +944,9 @@ namespace MaxTelegramBot
                     try
                     {
                         // Очищаем состояние ожидания кода сразу после начала проверки
+                        CancelAuthorizationTimeout(message.From.Id);
                         _awaitingCodeSessionDirByUser.Remove(message.From.Id);
-                        
+
                         // Сохраняем сессию для повторной проверки входа
                         _verificationSessionDirByUser[message.From.Id] = userDataDir;
                         
@@ -959,9 +1013,10 @@ namespace MaxTelegramBot
                     {
                         await _botClient.SendTextMessageAsync(message.Chat.Id, $"❌ Ошибка проверки входа: {ex.Message}", cancellationToken: cancellationToken);
                         // Очищаем ожидание при ошибке
+                        CancelAuthorizationTimeout(message.From.Id);
                         _awaitingCodeSessionDirByUser.Remove(message.From.Id);
                         _userPhoneNumbers.Remove(message.From.Id);
-                        
+
                         // Очищаем сессию проверки входа при ошибке
                         _verificationSessionDirByUser.Remove(message.From.Id);
                     }
@@ -971,6 +1026,7 @@ namespace MaxTelegramBot
             {
                 await _botClient.SendTextMessageAsync(message.Chat.Id, $"❌ Ошибка ввода кода: {ex.Message}", cancellationToken: cancellationToken);
                 // Очищаем ожидание при ошибке
+                CancelAuthorizationTimeout(message.From.Id);
                 _awaitingCodeSessionDirByUser.Remove(message.From.Id);
                 _userPhoneNumbers.Remove(message.From.Id); // Очищаем номер телефона
             }
@@ -2131,11 +2187,12 @@ namespace MaxTelegramBot
                     {
                         phoneNumber = savedPhone;
                     }
-                    
+
                     // Очищаем сессии
+                    CancelAuthorizationTimeout(userId);
                     _awaitingCodeSessionDirByUser.Remove(userId);
                     _userPhoneNumbers.Remove(userId);
-                    
+
                     // Закрываем браузер если он открыт
                     try
                     {
