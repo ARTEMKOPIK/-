@@ -51,6 +51,15 @@ namespace MaxTelegramBot
         private static readonly Dictionary<string, TimeSpan> _warmingRemainingByPhone = new Dictionary<string, TimeSpan>();
         private static readonly Dictionary<long, string> _resumeFreeByUser = new Dictionary<long, string>();
 
+        private static readonly string WarmingStateFile = "warming_state.json";
+        private static readonly object _warmingStateLock = new();
+
+        private class PersistedWarmingState
+        {
+            public Dictionary<string, double> Running { get; set; } = new();
+            public Dictionary<string, double> Paused { get; set; } = new();
+        }
+
         // Отслеживание последнего использованного номера для каждого пользователя
         private static readonly Dictionary<long, string> _lastUsedNumberByUser = new Dictionary<long, string>();
         
@@ -1070,6 +1079,8 @@ namespace MaxTelegramBot
                 // Инициализация бота
                 _botClient = new TelegramBotClient(_botToken);
 
+                LoadWarmingState();
+
                 // Запускаем Telegram polling в фоновом таске
                 using var cts = new CancellationTokenSource();
                 _cts = cts;
@@ -1652,6 +1663,7 @@ namespace MaxTelegramBot
                     if (left < TimeSpan.Zero) left = TimeSpan.Zero;
                     _warmingRemainingByPhone[phone] = left;
                     _warmingEndsByPhone.Remove(phone);
+                    SaveWarmingState();
                 }
 
                 // Закрываем браузер по этому номеру, затем чистим профиль
@@ -2293,6 +2305,7 @@ namespace MaxTelegramBot
                     }
                     _warmingEndsByPhone.Remove(phoneNumber);
                     _warmingRemainingByPhone.Remove(phoneNumber);
+                    SaveWarmingState();
                     _sessionDirByPhone.Remove(phoneNumber);
                     _lastUsedNumberByUser.Remove(callbackQuery.From.Id); // Очищаем последний использованный номер
 
@@ -3764,12 +3777,14 @@ namespace MaxTelegramBot
                 if (hasRemaining)
                 {
                     _warmingRemainingByPhone.Remove(phoneNumber);
+                    SaveWarmingState();
                 }
 
                 var endsAt = DateTime.UtcNow.Add(duration);
                 _warmingEndsByPhone[phoneNumber] = endsAt;
                 var cts = new CancellationTokenSource();
                 _warmingCtsByPhone[phoneNumber] = cts;
+                SaveWarmingState();
 
                 _ = Task.Run(async () =>
                 {
@@ -3784,6 +3799,7 @@ namespace MaxTelegramBot
                             var left = endsAt - now;
                             if (left <= TimeSpan.Zero) { finishedNaturally = true; break; }
                             _warmingRemainingByPhone[phoneNumber] = left;
+                            SaveWarmingState();
                             await Task.Delay(TimeSpan.FromMinutes(1), cts.Token);
                         }
                     }
@@ -3795,6 +3811,7 @@ namespace MaxTelegramBot
                         if (finishedNaturally)
                         {
                             _warmingRemainingByPhone.Remove(phoneNumber);
+                            SaveWarmingState();
                             
                             // Закрываем браузер для этого номера
                             try 
@@ -3841,6 +3858,7 @@ namespace MaxTelegramBot
                             }
                             catch { }
                         }
+                        SaveWarmingState();
                     }
                 });
             }
@@ -3864,6 +3882,7 @@ namespace MaxTelegramBot
                 }
             }
             _warmingEndsByPhone.Remove(phoneNumber);
+            SaveWarmingState();
             
             // Закрываем браузер при принудительной остановке прогрева (если нужно)
             if (closeBrowser)
@@ -3945,6 +3964,68 @@ namespace MaxTelegramBot
                 line2 = "📊 Статус: Не активен";
             }
             return line1 + "\n" + line2;
+        }
+
+        private static void SaveWarmingState()
+        {
+            try
+            {
+                lock (_warmingStateLock)
+                {
+                    var running = new Dictionary<string, double>();
+                    foreach (var kv in _warmingEndsByPhone)
+                    {
+                        var left = kv.Value - DateTime.UtcNow;
+                        if (left > TimeSpan.Zero)
+                            running[kv.Key] = left.TotalSeconds;
+                    }
+
+                    var paused = new Dictionary<string, double>();
+                    foreach (var kv in _warmingRemainingByPhone)
+                    {
+                        if (kv.Value > TimeSpan.Zero)
+                            paused[kv.Key] = kv.Value.TotalSeconds;
+                    }
+
+                    var state = new PersistedWarmingState { Running = running, Paused = paused };
+                    var json = JsonConvert.SerializeObject(state);
+                    System.IO.File.WriteAllText(WarmingStateFile, json);
+                }
+            }
+            catch { }
+        }
+
+        private static void LoadWarmingState()
+        {
+            try
+            {
+                if (!System.IO.File.Exists(WarmingStateFile)) return;
+                var json = System.IO.File.ReadAllText(WarmingStateFile);
+                var state = JsonConvert.DeserializeObject<PersistedWarmingState>(json);
+                if (state == null) return;
+
+                if (state.Paused != null)
+                {
+                    foreach (var kv in state.Paused)
+                    {
+                        _warmingRemainingByPhone[kv.Key] = TimeSpan.FromSeconds(kv.Value);
+                    }
+                }
+
+                if (state.Running != null)
+                {
+                    foreach (var kv in state.Running)
+                    {
+                        var remain = TimeSpan.FromSeconds(kv.Value);
+                        if (remain > TimeSpan.Zero)
+                        {
+                            _warmingRemainingByPhone[kv.Key] = remain;
+                            StartWarmingTimer(kv.Key, 0);
+                        }
+                    }
+                }
+            }
+            catch { }
         }
         
         private static async Task SendRandomMessageAsync(MaxWebAutomation cdp)
