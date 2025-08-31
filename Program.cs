@@ -79,6 +79,26 @@ namespace MaxTelegramBot
         // Состояние админ-панели для обработки ввода
         private static readonly Dictionary<long, string> _adminActionState = new Dictionary<long, string>(); // userId -> "give" или "take"
 
+        // Поддержка пользователей
+        private class SupportTicket
+        {
+            public long Id { get; init; }
+            public long UserId { get; init; }
+            public string Category { get; init; } = string.Empty;
+            public bool IsOpen { get; set; } = true;
+            public List<(bool FromUser, string Text, DateTime Time)> Messages { get; } = new();
+        }
+
+        private static long _nextTicketId = 1;
+        private static readonly Dictionary<long, SupportTicket> _tickets = new(); // ticketId -> ticket
+        private static readonly Dictionary<long, long> _userActiveTicket = new(); // userId -> ticketId
+        private static readonly HashSet<long> _awaitingSupportCategory = new(); // users choosing category
+        private static readonly Dictionary<long, long> _awaitingSupportMessageTicket = new(); // userId -> ticketId awaiting first message
+        private static readonly Dictionary<long, (long ticketId, long userId)> _awaitingSupportReply = new(); // adminId -> (ticketId,userId)
+        private static readonly long[] _supportAdminIds = { 1123842711 }; // ID админов поддержки
+
+        private static string FormatUser(Telegram.Bot.Types.User user) => user.Username != null ? $"@{user.Username}" : $"ID:{user.Id}";
+
         private static readonly string[] _userAgentTemplates = {
 			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
@@ -1297,6 +1317,129 @@ namespace MaxTelegramBot
                 return;
             }
 
+            // Обработка системы поддержки
+            if (messageText == "/support")
+            {
+                if (_userActiveTicket.ContainsKey(message.From!.Id))
+                {
+                    var tid = _userActiveTicket[message.From.Id];
+                    await botClient.SendTextMessageAsync(chatId, $"📝 У вас уже есть открытый тикет #{tid}. Напишите сообщение для продолжения или /close для закрытия.", cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    _awaitingSupportCategory.Add(message.From.Id);
+                    var kb = new InlineKeyboardMarkup(new[]
+                    {
+                        new [] { InlineKeyboardButton.WithCallbackData("💳 Оплата", "support_cat_pay") },
+                        new [] { InlineKeyboardButton.WithCallbackData("📦 Товары", "support_cat_goods") },
+                        new [] { InlineKeyboardButton.WithCallbackData("❓ Другое", "support_cat_other") }
+                    });
+                    await botClient.SendTextMessageAsync(chatId, "Выберите категорию обращения:", replyMarkup: kb, cancellationToken: cancellationToken);
+                }
+                return;
+            }
+            if (messageText == "/close")
+            {
+                if (_userActiveTicket.TryGetValue(message.From!.Id, out var tId) && _tickets.TryGetValue(tId, out var t) && t.IsOpen)
+                {
+                    t.IsOpen = false;
+                    _userActiveTicket.Remove(message.From.Id);
+                    await botClient.SendTextMessageAsync(chatId, $"✅ Тикет #{t.Id} закрыт.", cancellationToken: cancellationToken);
+                    foreach (var adminId in _supportAdminIds)
+                    {
+                        await botClient.SendTextMessageAsync(adminId, $"✅ Тикет #{t.Id} от {FormatUser(message.From!)} закрыт пользователем.", cancellationToken: cancellationToken);
+                    }
+                }
+                else
+                {
+                    await botClient.SendTextMessageAsync(chatId, "У вас нет открытых тикетов.", cancellationToken: cancellationToken);
+                }
+                return;
+            }
+            if (messageText == "/cancel")
+            {
+                var removed = _awaitingSupportCategory.Remove(message.From!.Id);
+                removed |= _awaitingSupportMessageTicket.Remove(message.From.Id);
+                removed |= _awaitingSupportReply.Remove(message.From.Id);
+                if (removed)
+                {
+                    await botClient.SendTextMessageAsync(chatId, "❌ Действие отменено.", cancellationToken: cancellationToken);
+                    return;
+                }
+            }
+            if (_awaitingSupportMessageTicket.TryGetValue(message.From!.Id, out var pendingTicketId))
+            {
+                _awaitingSupportMessageTicket.Remove(message.From.Id);
+                var ticket = _tickets[pendingTicketId];
+                ticket.Messages.Add((true, messageText, DateTime.UtcNow));
+                await botClient.SendTextMessageAsync(chatId, $"✅ Ваше обращение зарегистрировано под номером #{ticket.Id}. Ожидайте ответа.", cancellationToken: cancellationToken);
+                var adminKb = new InlineKeyboardMarkup(new[]
+                {
+                    new [] {
+                        InlineKeyboardButton.WithCallbackData("✉️ Ответить", $"support_reply_{ticket.Id}_{ticket.UserId}"),
+                        InlineKeyboardButton.WithCallbackData("✅ Закрыть", $"support_close_{ticket.Id}_{ticket.UserId}")
+                    }
+                });
+                foreach (var adminId in _supportAdminIds)
+                {
+                    await botClient.SendTextMessageAsync(adminId, $"🆘 Новый тикет #{ticket.Id} от {FormatUser(message.From!)} в категории {ticket.Category}:\n{messageText}", replyMarkup: adminKb, cancellationToken: cancellationToken);
+                }
+                return;
+            }
+            if (_userActiveTicket.TryGetValue(message.From!.Id, out var activeTicketId))
+            {
+                var ticket = _tickets[activeTicketId];
+                if (ticket.IsOpen)
+                {
+                    ticket.Messages.Add((true, messageText, DateTime.UtcNow));
+                    var adminKb = new InlineKeyboardMarkup(new[]
+                    {
+                        new [] {
+                            InlineKeyboardButton.WithCallbackData("✉️ Ответить", $"support_reply_{ticket.Id}_{ticket.UserId}"),
+                            InlineKeyboardButton.WithCallbackData("✅ Закрыть", $"support_close_{ticket.Id}_{ticket.UserId}")
+                        }
+                    });
+                    foreach (var adminId in _supportAdminIds)
+                    {
+                        await botClient.SendTextMessageAsync(adminId, $"📩 Сообщение по тикету #{ticket.Id} от {FormatUser(message.From!)}:\n{messageText}", replyMarkup: adminKb, cancellationToken: cancellationToken);
+                    }
+                    return;
+                }
+            }
+            if (_awaitingSupportReply.TryGetValue(message.From!.Id, out var reply))
+            {
+                _awaitingSupportReply.Remove(message.From.Id);
+                var (ticketId, userId) = reply;
+                if (_tickets.TryGetValue(ticketId, out var ticket) && ticket.IsOpen)
+                {
+                    ticket.Messages.Add((false, messageText, DateTime.UtcNow));
+                    await botClient.SendTextMessageAsync(userId, $"💬 Ответ поддержки по тикету #{ticketId}:\n{messageText}", cancellationToken: cancellationToken);
+                    foreach (var adminId in _supportAdminIds)
+                    {
+                        if (adminId != message.From.Id)
+                            await botClient.SendTextMessageAsync(adminId, $"📤 Ответ по тикету #{ticketId} от {FormatUser(message.From!)}:\n{messageText}", cancellationToken: cancellationToken);
+                    }
+                    await botClient.SendTextMessageAsync(chatId, "✅ Ответ отправлен пользователю.", cancellationToken: cancellationToken);
+                }
+                return;
+            }
+            if (messageText == "/tickets" && _supportAdminIds.Contains(message.From!.Id))
+            {
+                var open = _tickets.Values.Where(t => t.IsOpen).ToList();
+                if (open.Count == 0)
+                {
+                    await botClient.SendTextMessageAsync(chatId, "Открытых тикетов нет.", cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    var sb = new StringBuilder("📋 Открытые тикеты:\n");
+                    foreach (var t in open)
+                        sb.AppendLine($"#{t.Id} от {t.UserId} ({t.Category})");
+                    await botClient.SendTextMessageAsync(chatId, sb.ToString(), cancellationToken: cancellationToken);
+                }
+                return;
+            }
+
             if (messageText.StartsWith("/start"))
             {
                 Console.WriteLine($"Получена команда /start от пользователя {message.From.Id} ({message.From.Username})");
@@ -1663,6 +1806,59 @@ namespace MaxTelegramBot
             var chatId = callbackQuery.Message.Chat.Id;
             var messageId = callbackQuery.Message.MessageId;
 
+            if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("support_cat_"))
+            {
+                if (_awaitingSupportCategory.Contains(callbackQuery.From.Id))
+                {
+                    _awaitingSupportCategory.Remove(callbackQuery.From.Id);
+                    var key = callbackQuery.Data.Substring("support_cat_".Length);
+                    var category = key switch
+                    {
+                        "pay" => "💳 Оплата",
+                        "goods" => "📦 Товары",
+                        _ => "❓ Другое"
+                    };
+                    var ticket = new SupportTicket { Id = _nextTicketId++, UserId = callbackQuery.From.Id, Category = category };
+                    _tickets[ticket.Id] = ticket;
+                    _userActiveTicket[callbackQuery.From.Id] = ticket.Id;
+                    _awaitingSupportMessageTicket[callbackQuery.From.Id] = ticket.Id;
+                    await botClient.EditMessageTextAsync(chatId, messageId, $"Категория: {category}\nОпишите вашу проблему и отправьте первым сообщением.", cancellationToken: cancellationToken);
+                }
+                return;
+            }
+            if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("support_reply_"))
+            {
+                var parts = callbackQuery.Data.Substring("support_reply_".Length).Split('_');
+                if (parts.Length == 2 && long.TryParse(parts[0], out var ticketId) && long.TryParse(parts[1], out var userId))
+                {
+                    _awaitingSupportReply[callbackQuery.From.Id] = (ticketId, userId);
+                    await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, "Введите ответ", cancellationToken: cancellationToken);
+                    await botClient.SendTextMessageAsync(chatId, $"✍️ Напишите ответ для тикета #{ticketId}.", cancellationToken: cancellationToken);
+                }
+                return;
+            }
+            if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("support_close_"))
+            {
+                var parts = callbackQuery.Data.Substring("support_close_".Length).Split('_');
+                if (parts.Length == 2 && long.TryParse(parts[0], out var ticketId) && long.TryParse(parts[1], out var userId))
+                {
+                    if (_tickets.TryGetValue(ticketId, out var ticket))
+                    {
+                        ticket.IsOpen = false;
+                        _userActiveTicket.Remove(userId);
+                        await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, "Тикет закрыт", cancellationToken: cancellationToken);
+                        await botClient.SendTextMessageAsync(userId, $"✅ Ваш тикет #{ticketId} закрыт поддержкой.", cancellationToken: cancellationToken);
+                        foreach (var adminId in _supportAdminIds)
+                        {
+                            if (adminId != callbackQuery.From.Id)
+                                await botClient.SendTextMessageAsync(adminId, $"⚠️ Тикет #{ticketId} закрыт администратором {FormatUser(callbackQuery.From)}.", cancellationToken: cancellationToken);
+                        }
+                        await botClient.EditMessageTextAsync(chatId, messageId, $"Тикет #{ticketId} закрыт.", cancellationToken: cancellationToken);
+                    }
+                }
+                return;
+            }
+
             // Прямой хендлер для start_account:<phone>
             if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("start_account:"))
             {
@@ -1992,6 +2188,25 @@ namespace MaxTelegramBot
                         replyMarkup: keyboard,
                         cancellationToken: cancellationToken
                     );
+                    break;
+
+                case "support":
+                    if (_userActiveTicket.ContainsKey(callbackQuery.From.Id))
+                    {
+                        var tid = _userActiveTicket[callbackQuery.From.Id];
+                        await botClient.EditMessageTextAsync(chatId, messageId, $"📝 У вас уже есть открытый тикет #{tid}. Напишите сообщение или /close для закрытия.", cancellationToken: cancellationToken);
+                    }
+                    else
+                    {
+                        _awaitingSupportCategory.Add(callbackQuery.From.Id);
+                        var kb = new InlineKeyboardMarkup(new[]
+                        {
+                            new [] { InlineKeyboardButton.WithCallbackData("💳 Оплата", "support_cat_pay") },
+                            new [] { InlineKeyboardButton.WithCallbackData("📦 Товары", "support_cat_goods") },
+                            new [] { InlineKeyboardButton.WithCallbackData("❓ Другое", "support_cat_other") }
+                        });
+                        await botClient.EditMessageTextAsync(chatId, messageId, "Выберите категорию обращения:", replyMarkup: kb, cancellationToken: cancellationToken);
+                    }
                     break;
 
                 case "give_accounts":
