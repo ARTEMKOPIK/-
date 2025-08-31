@@ -4060,7 +4060,16 @@ namespace MaxTelegramBot
             }
             else
             {
-                StartWarmingTimer(phoneNumber, chatId, extension);
+                // Если прогрев не запущен, просто накапливаем оплаченные часы
+                if (_warmingRemainingByPhone.TryGetValue(phoneNumber, out var remain) && remain > TimeSpan.Zero)
+                {
+                    _warmingRemainingByPhone[phoneNumber] = remain + extension;
+                }
+                else
+                {
+                    _warmingRemainingByPhone[phoneNumber] = extension;
+                }
+                SaveWarmingState();
             }
         }
 
