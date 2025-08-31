@@ -10,6 +10,7 @@ using Newtonsoft.Json.Linq;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 
@@ -17,14 +18,17 @@ namespace MaxTelegramBot
 {
     class Program
     {
-        private static ITelegramBotClient _botClient;
+        private static ITelegramBotClient _botClient = default!;
         private static string _botToken = "8151467364:AAHavK2OpIuO2ZQt8crnoupXAYLFDfspNc0"; // Токен бота
-        private static SupabaseService _supabaseService;
-        private static CryptoPayService _cryptoPayService;
+        private static SupabaseService _supabaseService = default!;
+        private static CryptoPayService _cryptoPayService = default!;
         private const decimal PricePerAccountUsdt = 0.50m;
-        private static CancellationTokenSource _cts; // для управляемого выключения
+        private const decimal PricePerSixHoursUsdt = 0.50m;
+        private static decimal CalculateHoursPrice(int hours) => (PricePerSixHoursUsdt / 6m) * hours;
+        private static CancellationTokenSource _cts = default!; // для управляемого выключения
         private static bool _isShuttingDown = false;
         private static bool _maintenance = false; // режим обслуживания
+        private static bool _timePaymentsPollingEnabled = true; // отключается если таблица отсутствует
         
         // Данные Supabase
         private static string _supabaseUrl = "https://jlsmbiebfqqgncihdfki.supabase.co";
@@ -41,6 +45,7 @@ namespace MaxTelegramBot
         private static readonly Dictionary<long, string> _userPhoneNumbers = new(); // Номера телефонов по пользователям
         private static readonly Dictionary<long, string> _lastSessionDirByUser = new Dictionary<long, string>();
         private static readonly HashSet<long> _awaitingPaymentQtyUserIds = new HashSet<long>();
+        private static readonly Dictionary<long, string> _awaitingHoursByUser = new();
         private static readonly Dictionary<string, string> _sessionDirByPhone = new Dictionary<string, string>();
 
         // Сессии для повторной проверки входа
@@ -1168,6 +1173,57 @@ namespace MaxTelegramBot
                                     }
                                 }
                             }
+
+                            List<TimePayment> pendingTime = new();
+                            if (_timePaymentsPollingEnabled)
+                            {
+                                var respTime = await http.GetAsync($"{_supabaseUrl}/rest/v1/time_payments?status=eq.pending&select=*");
+                                var jsonTime = await respTime.Content.ReadAsStringAsync();
+                                if (respTime.IsSuccessStatusCode)
+                                {
+                                    try
+                                    {
+                                        var tokenTime = Newtonsoft.Json.Linq.JToken.Parse(jsonTime);
+                                        pendingTime = tokenTime.Type == Newtonsoft.Json.Linq.JTokenType.Array
+                                            ? Newtonsoft.Json.JsonConvert.DeserializeObject<List<TimePayment>>(jsonTime) ?? new List<TimePayment>()
+                                            : new List<TimePayment>();
+                                    }
+                                    catch
+                                    {
+                                        Console.WriteLine($"[Polling] Ошибка парсинга time_payments: {jsonTime}");
+                                        pendingTime = new List<TimePayment>();
+                                    }
+                                }
+                                else if (respTime.StatusCode == HttpStatusCode.NotFound)
+                                {
+                                    Console.WriteLine("[Polling] time_payments table not found. Disabling time payments polling.");
+                                    _timePaymentsPollingEnabled = false;
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"[Polling] Supabase time_payments error {respTime.StatusCode}: {jsonTime}");
+                                }
+                            }
+                            foreach (var tp in pendingTime)
+                            {
+                                var status = await _cryptoPayService.GetInvoiceStatusAsync(tp.Hash);
+                                if (status == "paid")
+                                {
+                                    Console.WriteLine($"[Polling] Time invoice {tp.Hash} оплачен. Зачисляю {tp.Hours}ч на {tp.PhoneNumber}");
+                                    AddWarmingHours(tp.PhoneNumber, tp.Hours, tp.UserId);
+                                    await _supabaseService.MarkTimePaymentPaidAsync(tp.Hash);
+                                    try { await _botClient.SendTextMessageAsync(tp.UserId, $"✅ Оплата получена. Зачислено {tp.Hours}ч на {tp.PhoneNumber}."); } catch {}
+                                }
+                                else if (status == "expired" || (DateTime.UtcNow - tp.CreatedAt.ToUniversalTime()) > TimeSpan.FromMinutes(10))
+                                {
+                                    Console.WriteLine($"[Polling] Time invoice {tp.Hash} просрочен. Помечаю как canceled");
+                                    await _supabaseService.MarkTimePaymentCanceledAsync(tp.Hash);
+                                    if (tp.ChatId.HasValue && tp.MessageId.HasValue)
+                                    {
+                                        try { await _botClient.DeleteMessageAsync(tp.ChatId.Value, tp.MessageId.Value); } catch {}
+                                    }
+                                }
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -1489,6 +1545,39 @@ namespace MaxTelegramBot
                 }
                 if (message.From != null) _awaitingPaymentQtyUserIds.Remove(message.From.Id);
             }
+            else if (message.From != null && _awaitingHoursByUser.TryGetValue(message.From.Id, out var phoneForHours)
+                     && int.TryParse(messageText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var hours) && hours >= 1 && hours <= 48)
+            {
+                var amountUsdt = CalculateHoursPrice(hours);
+                var description = $"Покупка {hours}ч для {phoneForHours}";
+                var invoice = await _cryptoPayService.CreateInvoiceAsync(amountUsdt, "USDT", description);
+                if (invoice != null && !string.IsNullOrEmpty(invoice.Url))
+                {
+                    var payKeyboard = new InlineKeyboardMarkup(new[]
+                    {
+                        new [] { InlineKeyboardButton.WithUrl("💰 Оплатить", invoice.Url) },
+                        new [] { InlineKeyboardButton.WithCallbackData("🏠 Главное меню", "main_menu") }
+                    });
+
+                    var paymentMsg = await botClient.SendTextMessageAsync(
+                        chatId: chatId,
+                        text: $"Счет создан на {amountUsdt:F2} USDT за {hours}ч для {phoneForHours}.\n\nОплатите по кнопке ниже.",
+                        replyMarkup: payKeyboard,
+                        cancellationToken: cancellationToken
+                    );
+
+                    await _supabaseService.CreateTimePaymentAsync(message.From.Id, phoneForHours, hours, amountUsdt, invoice.Hash, chatId, paymentMsg.MessageId);
+                }
+                else
+                {
+                    await botClient.SendTextMessageAsync(chatId, "❌ Не удалось создать счет. Попробуйте позже.", cancellationToken: cancellationToken);
+                }
+                _awaitingHoursByUser.Remove(message.From.Id);
+            }
+            else if (message.From != null && _awaitingHoursByUser.ContainsKey(message.From.Id))
+            {
+                await botClient.SendTextMessageAsync(chatId, "❌ Введите число часов от 1 до 48.", cancellationToken: cancellationToken);
+            }
             // Ввод номера телефона как раньше
             else if (message.From != null && (messageText.StartsWith("+") || (messageText.Length >= 10 && messageText.All(c => char.IsDigit(c) || c == '+' || c == '(' || c == ')' || c == '-' || c == ' '))) && !(message.From.Id == 1123842711 && messageText.Split(' ').Length == 2))
             {
@@ -1644,10 +1733,11 @@ namespace MaxTelegramBot
                 {
                     cardKb = new InlineKeyboardMarkup(new[]
                     {
-                        new [] { 
+                        new [] {
                             InlineKeyboardButton.WithCallbackData("🛑 Остановить", $"stop_warming:{phone}"),
                             InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"delete_account:{phone}")
                         },
+                        new [] { InlineKeyboardButton.WithCallbackData("🛒 Купить часы", $"buy_hours:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("← Назад", "my_accounts") }
                     });
                 }
@@ -1655,14 +1745,28 @@ namespace MaxTelegramBot
                 {
                     cardKb = new InlineKeyboardMarkup(new[]
                     {
-                        new [] { 
+                        new [] {
                             InlineKeyboardButton.WithCallbackData("▶️ Запустить", $"start_account:{phone}"),
                             InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"delete_account:{phone}")
                         },
+                        new [] { InlineKeyboardButton.WithCallbackData("🛒 Купить часы", $"buy_hours:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("← Назад", "my_accounts") }
                     });
                 }
                 await botClient.EditMessageTextAsync(chatId, messageId, cardText, replyMarkup: cardKb, cancellationToken: cancellationToken);
+                return;
+            }
+
+            // Покупка часов: buy_hours:<phone>
+            if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("buy_hours:"))
+            {
+                var phone = callbackQuery.Data.Substring("buy_hours:".Length);
+                _awaitingHoursByUser[callbackQuery.From.Id] = phone;
+                var kb = new InlineKeyboardMarkup(new[]
+                {
+                    new [] { InlineKeyboardButton.WithCallbackData("❌ Отмена", $"acc:{phone}") }
+                });
+                await botClient.EditMessageTextAsync(chatId, messageId, $"⏱️ Введите количество часов для {phone} (1-48):", replyMarkup: kb, cancellationToken: cancellationToken);
                 return;
             }
 
@@ -2760,7 +2864,7 @@ namespace MaxTelegramBot
                             switch (sourceMessage.Type)
                             {
                                 case MessageType.Text:
-                                    await botClient.SendTextMessageAsync(uid, sourceMessage.Text, parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
+                                    await botClient.SendTextMessageAsync(uid, sourceMessage.Text ?? string.Empty, parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
                                     break;
                                 case MessageType.Photo:
                                     var ph = sourceMessage.Photo?.OrderBy(p => p.FileSize).LastOrDefault();
@@ -3787,15 +3891,15 @@ namespace MaxTelegramBot
             }
         }
 
-        private static void StartWarmingTimer(string phoneNumber, long chatId)
+        private static void StartWarmingTimer(string phoneNumber, long chatId, TimeSpan? customDuration = null)
         {
             try
             {
                 // Сначала проверяем, есть ли сохраненный остаток времени
                 var hasRemaining = _warmingRemainingByPhone.TryGetValue(phoneNumber, out var remain);
-                var duration = hasRemaining && remain > TimeSpan.Zero
+                var duration = customDuration ?? (hasRemaining && remain > TimeSpan.Zero
                     ? remain
-                    : TimeSpan.FromHours(6);
+                    : TimeSpan.FromHours(6));
 
                 // Если уже идет прогрев — перезапускаем (браузер не закрываем)
                 StopWarmingTimer(phoneNumber, saveRemaining: false, closeBrowser: false); // Не сохраняем, так как уже знаем duration
@@ -3910,7 +4014,7 @@ namespace MaxTelegramBot
             }
             _warmingEndsByPhone.Remove(phoneNumber);
             SaveWarmingState();
-            
+
             // Закрываем браузер при принудительной остановке прогрева (если нужно)
             if (closeBrowser)
             {
@@ -3951,6 +4055,21 @@ namespace MaxTelegramBot
                         Console.WriteLine($"[WARMING] ❌ Ошибка при закрытии браузера для номера {phoneNumber} при остановке: {ex.Message}");
                     }
                 });
+            }
+        }
+
+        private static void AddWarmingHours(string phoneNumber, int hours, long chatId)
+        {
+            var extension = TimeSpan.FromHours(hours);
+            if (_warmingCtsByPhone.ContainsKey(phoneNumber) && _warmingEndsByPhone.TryGetValue(phoneNumber, out var ends))
+            {
+                var remaining = ends - DateTime.UtcNow;
+                if (remaining < TimeSpan.Zero) remaining = TimeSpan.Zero;
+                StartWarmingTimer(phoneNumber, chatId, remaining + extension);
+            }
+            else
+            {
+                StartWarmingTimer(phoneNumber, chatId, extension);
             }
         }
 
@@ -4299,9 +4418,9 @@ namespace MaxTelegramBot
                     ["returnByValue"] = true
                 });
                 
-                if (captchaCheck?["result"]?["result"]?["value"] != null)
+                var captchaResult = captchaCheck?["result"]?["result"]?["value"];
+                if (captchaResult != null)
                 {
-                    var captchaResult = captchaCheck["result"]["result"]["value"];
                     if (captchaResult["found"]?.Value<bool>() == true && captchaResult["clicked"]?.Value<bool>() == true)
                     {
                         Console.WriteLine($"[MAX] ✅ Капча {context} обработана автоматически! Кнопка: {captchaResult["buttonText"]?.Value<string>()}");
@@ -4310,6 +4429,11 @@ namespace MaxTelegramBot
                     else if (captchaResult["found"]?.Value<bool>() == true && captchaResult["clicked"]?.Value<bool>() == false)
                     {
                         Console.WriteLine($"[MAX] ⚠️ Капча {context} обнаружена, но кнопка не нажата: {captchaResult["error"]?.Value<string>()}");
+                        return false;
+                    }
+                    else if (captchaResult["error"] != null)
+                    {
+                        Console.WriteLine($"[MAX] ❌ Ошибка при обработке капчи {context}: {captchaResult["error"]?.Value<string>()}");
                         return false;
                     }
                     else
