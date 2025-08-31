@@ -68,6 +68,39 @@ namespace MaxTelegramBot
         public int? MessageId { get; set; }
     }
 
+    public class TimePayment
+    {
+        [JsonProperty("id")]
+        public long Id { get; set; }
+
+        [JsonProperty("user_id")]
+        public long UserId { get; set; }
+
+        [JsonProperty("phone_number")]
+        public string PhoneNumber { get; set; } = string.Empty;
+
+        [JsonProperty("hash")]
+        public string Hash { get; set; } = string.Empty;
+
+        [JsonProperty("hours")]
+        public int Hours { get; set; }
+
+        [JsonProperty("amount_usdt")]
+        public decimal AmountUsdt { get; set; }
+
+        [JsonProperty("status")]
+        public string Status { get; set; } = "pending";
+
+        [JsonProperty("created_at")]
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        [JsonProperty("chat_id")]
+        public long? ChatId { get; set; }
+
+        [JsonProperty("message_id")]
+        public int? MessageId { get; set; }
+    }
+
     public class ReferralEarning
     {
         [JsonProperty("id")]
@@ -814,6 +847,74 @@ namespace MaxTelegramBot
             catch (Exception ex)
             {
                 Console.WriteLine($"Ошибка CreatePaymentAsync: {ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task<bool> CreateTimePaymentAsync(long userId, string phone, int hours, decimal amountUsdt, string hash, long chatId, int messageId)
+        {
+            try
+            {
+                var payload = new
+                {
+                    user_id = userId,
+                    phone_number = phone,
+                    hash = hash,
+                    hours = hours,
+                    amount_usdt = amountUsdt,
+                    status = "pending",
+                    created_at = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                    chat_id = chatId,
+                    message_id = messageId
+                };
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = await _httpClient.PostAsync($"{_supabaseUrl}/rest/v1/time_payments", content);
+                var resp = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"CreateTimePaymentAsync: {response.StatusCode} - {resp}");
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка CreateTimePaymentAsync: {ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task<bool> MarkTimePaymentPaidAsync(string hash)
+        {
+            try
+            {
+                var payload = new { status = "paid" };
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = await _httpClient.PatchAsync($"{_supabaseUrl}/rest/v1/time_payments?hash=eq.{hash}", content);
+                var resp = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"MarkTimePaymentPaidAsync: {response.StatusCode} - {resp}");
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка MarkTimePaymentPaidAsync: {ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task<bool> MarkTimePaymentCanceledAsync(string hash)
+        {
+            try
+            {
+                var payload = new { status = "canceled" };
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = await _httpClient.PatchAsync($"{_supabaseUrl}/rest/v1/time_payments?hash=eq.{hash}", content);
+                var resp = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"MarkTimePaymentCanceledAsync: {response.StatusCode} - {resp}");
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка MarkTimePaymentCanceledAsync: {ex.Message}");
                 return false;
             }
         }
