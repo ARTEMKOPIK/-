@@ -18,7 +18,7 @@ namespace MaxTelegramBot
     class Program
     {
         private static ITelegramBotClient _botClient;
-        private static string _botToken = "7979971381:AAHSAp5afPP-tkh6umRm9NYrTdM-WKuO4Q0"; // Токен бота
+        private static string _botToken = "8151467364:AAHavK2OpIuO2ZQt8crnoupXAYLFDfspNc0"; // Токен бота
         private static SupabaseService _supabaseService;
         private static CryptoPayService _cryptoPayService;
         private const decimal PricePerAccountUsdt = 0.50m;
