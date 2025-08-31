@@ -1172,7 +1172,7 @@ namespace MaxTelegramBot
                                 }
                             }
 
-                            var respTime = await http.GetAsync($"{_supabaseUrl}/rest/v1/time_payments?status=eq.pending&select=*");
+                            var respTime = await http.GetAsync($"{_supabaseUrl}/rest/v1/time_payments?select=*");
                             var jsonTime = await respTime.Content.ReadAsStringAsync();
                             List<TimePayment> pendingTime;
                             if (respTime.IsSuccessStatusCode)
@@ -1202,13 +1202,13 @@ namespace MaxTelegramBot
                                 {
                                     Console.WriteLine($"[Polling] Time invoice {tp.Hash} оплачен. Зачисляю {tp.Hours}ч на {tp.PhoneNumber}");
                                     AddWarmingHours(tp.PhoneNumber, tp.Hours, tp.UserId);
-                                    await _supabaseService.MarkTimePaymentPaidAsync(tp.Hash);
+                                    await _supabaseService.DeleteTimePaymentByHashAsync(tp.Hash);
                                     try { await _botClient.SendTextMessageAsync(tp.UserId, $"✅ Оплата получена. Зачислено {tp.Hours}ч на {tp.PhoneNumber}."); } catch {}
                                 }
                                 else if (status == "expired" || (DateTime.UtcNow - tp.CreatedAt.ToUniversalTime()) > TimeSpan.FromMinutes(10))
                                 {
-                                    Console.WriteLine($"[Polling] Time invoice {tp.Hash} просрочен. Помечаю как canceled");
-                                    await _supabaseService.MarkTimePaymentCanceledAsync(tp.Hash);
+                                    Console.WriteLine($"[Polling] Time invoice {tp.Hash} просрочен. Удаляю запись");
+                                    await _supabaseService.DeleteTimePaymentByHashAsync(tp.Hash);
                                     if (tp.ChatId.HasValue && tp.MessageId.HasValue)
                                     {
                                         try { await _botClient.DeleteMessageAsync(tp.ChatId.Value, tp.MessageId.Value); } catch {}
@@ -1557,7 +1557,7 @@ namespace MaxTelegramBot
                         cancellationToken: cancellationToken
                     );
 
-                    await _supabaseService.CreateTimePaymentAsync(message.From.Id, phoneForHours, hours, amountUsdt, invoice.Hash, chatId, paymentMsg.MessageId);
+                    await _supabaseService.CreateTimePaymentAsync(message.From.Id, phoneForHours, hours, invoice.Hash, chatId, paymentMsg.MessageId);
                 }
                 else
                 {
