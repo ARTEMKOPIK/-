@@ -1081,9 +1081,33 @@ namespace MaxTelegramBot
 
                 LoadWarmingState();
 
-                // Запускаем Telegram polling в фоновом таске
+                // Создаем CTS и регистрируем обработчики завершения
                 using var cts = new CancellationTokenSource();
                 _cts = cts;
+
+                AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+                {
+                    try
+                    {
+                        Console.WriteLine("[WARMING] Сохраняю состояние перед завершением...");
+                        SaveWarmingState();
+                    }
+                    catch { }
+                };
+
+                Console.CancelKeyPress += (_, e) =>
+                {
+                    try
+                    {
+                        Console.WriteLine("[WARMING] Отмена по Ctrl+C, сохраняю состояние...");
+                        SaveWarmingState();
+                    }
+                    catch { }
+                    try { _cts?.Cancel(); } catch { }
+                    e.Cancel = true;
+                };
+
+                // Запускаем Telegram polling в фоновом таске
                 var receiverOptions = new ReceiverOptions { AllowedUpdates = new[] { UpdateType.Message, UpdateType.CallbackQuery } };
                 _botClient.StartReceiving(HandleUpdateAsync, HandlePollingErrorAsync, receiverOptions, cts.Token);
 
@@ -1154,11 +1178,13 @@ namespace MaxTelegramBot
                 }, cts.Token);
 
                 Console.ReadLine();
+                SaveWarmingState();
                 cts.Cancel();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Ошибка при запуске бота: {ex.Message}");
+                try { SaveWarmingState(); } catch { }
                 Console.ReadLine();
                 Environment.Exit(1);
             }
@@ -1168,6 +1194,7 @@ namespace MaxTelegramBot
         {
             if (_isShuttingDown) return;
             _isShuttingDown = true;
+            try { SaveWarmingState(); } catch { }
             try { _cts?.Cancel(); } catch {}
             Task.Run(async () => { await Task.Delay(500); Environment.Exit(0); });
         }
