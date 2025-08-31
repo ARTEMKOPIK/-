@@ -938,18 +938,19 @@ namespace MaxTelegramBot
                 
                                 // Если ошибок нет - код принят. Проверяем вход по селектору "h2.title.svelte-zqkpxo" и тексту "Чаты"
                 await _botClient.SendTextMessageAsync(message.Chat.Id, "⏳ Проверяю вход...");
+
+                // Очищаем состояние ожидания кода сразу после получения сообщения
+                CancelAuthorizationTimeout(message.From.Id);
+                _awaitingCodeSessionDirByUser.Remove(message.From.Id);
+
                 // Даем сайту прогрузиться перед началом проверки
                 try { await Task.Delay(10000, cancellationToken); } catch {}
- 
+
                 // Запускаем проверку входа в фоновом потоке, чтобы не блокировать Telegram бота
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        // Очищаем состояние ожидания кода сразу после начала проверки
-                        CancelAuthorizationTimeout(message.From.Id);
-                        _awaitingCodeSessionDirByUser.Remove(message.From.Id);
-
                         // Сохраняем сессию для повторной проверки входа
                         _verificationSessionDirByUser[message.From.Id] = userDataDir;
                         
