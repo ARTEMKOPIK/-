@@ -85,12 +85,6 @@ namespace MaxTelegramBot
         [JsonProperty("hours")]
         public int Hours { get; set; }
 
-        [JsonProperty("amount_usdt")]
-        public decimal AmountUsdt { get; set; }
-
-        [JsonProperty("status")]
-        public string Status { get; set; } = "pending";
-
         [JsonProperty("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -851,7 +845,7 @@ namespace MaxTelegramBot
             }
         }
 
-        public async Task<bool> CreateTimePaymentAsync(long userId, string phone, int hours, decimal amountUsdt, string hash, long chatId, int messageId)
+        public async Task<bool> CreateTimePaymentAsync(long userId, string phone, int hours, string hash, long chatId, int messageId)
         {
             try
             {
@@ -861,8 +855,6 @@ namespace MaxTelegramBot
                     phone_number = phone,
                     hash = hash,
                     hours = hours,
-                    amount_usdt = amountUsdt,
-                    status = "pending",
                     created_at = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
                     chat_id = chatId,
                     message_id = messageId
@@ -881,40 +873,18 @@ namespace MaxTelegramBot
             }
         }
 
-        public async Task<bool> MarkTimePaymentPaidAsync(string hash)
+        public async Task<bool> DeleteTimePaymentByHashAsync(string hash)
         {
             try
             {
-                var payload = new { status = "paid" };
-                var json = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var response = await _httpClient.PatchAsync($"{_supabaseUrl}/rest/v1/time_payments?hash=eq.{hash}", content);
+                var response = await _httpClient.DeleteAsync($"{_supabaseUrl}/rest/v1/time_payments?hash=eq.{hash}");
                 var resp = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"MarkTimePaymentPaidAsync: {response.StatusCode} - {resp}");
+                Console.WriteLine($"DeleteTimePaymentByHashAsync: {response.StatusCode} - {resp}");
                 return response.IsSuccessStatusCode;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Ошибка MarkTimePaymentPaidAsync: {ex.Message}");
-                return false;
-            }
-        }
-
-        public async Task<bool> MarkTimePaymentCanceledAsync(string hash)
-        {
-            try
-            {
-                var payload = new { status = "canceled" };
-                var json = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var response = await _httpClient.PatchAsync($"{_supabaseUrl}/rest/v1/time_payments?hash=eq.{hash}", content);
-                var resp = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"MarkTimePaymentCanceledAsync: {response.StatusCode} - {resp}");
-                return response.IsSuccessStatusCode;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Ошибка MarkTimePaymentCanceledAsync: {ex.Message}");
+                Console.WriteLine($"Ошибка DeleteTimePaymentByHashAsync: {ex.Message}");
                 return false;
             }
         }
