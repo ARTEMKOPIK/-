@@ -4427,8 +4427,7 @@ namespace MaxTelegramBot
                         var remain = TimeSpan.FromSeconds(kv.Value);
                         if (remain > TimeSpan.Zero)
                         {
-                            _warmingRemainingByPhone[kv.Key] = remain;
-                            StartWarmingTimer(kv.Key, 0);
+                            StartWarmingTimer(kv.Key, 0, remain);
                         }
                     }
                 }
