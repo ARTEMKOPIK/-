@@ -1597,6 +1597,10 @@ namespace MaxTelegramBot
                         },
                         new []
                         {
+                            InlineKeyboardButton.WithCallbackData("⏱️ Выдать время", "give_time")
+                        },
+                        new []
+                        {
                             InlineKeyboardButton.WithCallbackData("📢 Рассылка (копировать)", "admin_broadcast_copy"),
                             InlineKeyboardButton.WithCallbackData("🔁 Рассылка (переслать)", "admin_broadcast_forward")
                         },
@@ -1706,6 +1710,55 @@ namespace MaxTelegramBot
                     await botClient.SendTextMessageAsync(chatId, "❌ Не удалось создать счет. Попробуйте позже.", cancellationToken: cancellationToken);
                 }
                 if (message.From != null) _awaitingPaymentQtyUserIds.Remove(message.From.Id);
+            }
+            else if (message.From?.Id == 1123842711 && _adminActionState.TryGetValue(message.From.Id, out var adminAction) && adminAction == "give_time_all")
+            {
+                if (int.TryParse(messageText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var hours) && hours >= 1 && hours <= 48)
+                {
+                    _adminActionState.Remove(message.From.Id);
+                    var users = await _supabaseService.GetAllUsersAsync();
+                    var numbers = 0;
+                    foreach (var u in users.Where(u => u.PhoneNumbers != null && u.PhoneNumbers.Count > 0))
+                    {
+                        foreach (var phone in u.PhoneNumbers)
+                        {
+                            AddWarmingHours(phone, hours, u.Id);
+                            numbers++;
+                            try { await botClient.SendTextMessageAsync(u.Id, $"✅ Вам выдано {hours}ч на номер {phone}."); } catch {}
+                        }
+                    }
+                    await botClient.SendTextMessageAsync(chatId, $"✅ Выдано {hours}ч на {numbers} номер(ов).", cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await botClient.SendTextMessageAsync(chatId, "❌ Введите число часов от 1 до 48.", cancellationToken: cancellationToken);
+                }
+            }
+            else if (message.From?.Id == 1123842711 && _adminActionState.TryGetValue(message.From.Id, out adminAction) && adminAction == "give_time_user")
+            {
+                var parts = messageText.Split(' ');
+                if (parts.Length == 2 && long.TryParse(parts[0], out var uid) && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var hours) && hours >= 1 && hours <= 48)
+                {
+                    _adminActionState.Remove(message.From.Id);
+                    var user = await _supabaseService.GetUserAsync(uid);
+                    if (user != null && user.PhoneNumbers != null && user.PhoneNumbers.Count > 0)
+                    {
+                        foreach (var phone in user.PhoneNumbers)
+                        {
+                            AddWarmingHours(phone, hours, uid);
+                            try { await botClient.SendTextMessageAsync(uid, $"✅ Вам выдано {hours}ч на номер {phone}."); } catch {}
+                        }
+                        await botClient.SendTextMessageAsync(chatId, $"✅ Выдал {hours}ч пользователю {uid} на {user.PhoneNumbers.Count} номер(ов).", cancellationToken: cancellationToken);
+                    }
+                    else
+                    {
+                        await botClient.SendTextMessageAsync(chatId, "❌ Пользователь не найден или не имеет номеров.", cancellationToken: cancellationToken);
+                    }
+                }
+                else
+                {
+                    await botClient.SendTextMessageAsync(chatId, "❌ Неверный формат. Используйте: ID часы (1-48).", cancellationToken: cancellationToken);
+                }
             }
             else if (message.From != null && _awaitingHoursByUser.TryGetValue(message.From.Id, out var phoneForHours)
                      && int.TryParse(messageText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var hours) && hours >= 1 && hours <= 48)
@@ -2200,6 +2253,7 @@ namespace MaxTelegramBot
                     break;
 
                 case "main_menu":
+                    _adminActionState.Remove(callbackQuery.From.Id);
                     var welcomeMessage = $"Привет, {callbackQuery.From.Username}! 👋\n\n" +
                                        "➡ Atlantis Grev — бот для прогрева аккаунтов MAX\n\n" +
                                        "Чтобы добавить аккаунт, нажми на кнопку ➕ Добавить аккаунт.\n\n" +
@@ -2318,6 +2372,46 @@ namespace MaxTelegramBot
                     }
                     break;
 
+                case "give_time":
+                    if (callbackQuery.From.Id == 1123842711)
+                    {
+                        var msg = "⏱️ Выдача времени\n\nВыберите вариант:";
+                        var kb = new InlineKeyboardMarkup(new[]
+                        {
+                            new [] { InlineKeyboardButton.WithCallbackData("👥 Всем с номерами", "give_time_all") },
+                            new [] { InlineKeyboardButton.WithCallbackData("👤 Одному пользователю", "give_time_user") },
+                            new [] { InlineKeyboardButton.WithCallbackData("🏠 Главное меню", "main_menu") }
+                        });
+                        await botClient.EditMessageTextAsync(chatId, messageId, msg, replyMarkup: kb, cancellationToken: cancellationToken);
+                    }
+                    break;
+
+                case "give_time_all":
+                    if (callbackQuery.From.Id == 1123842711)
+                    {
+                        _adminActionState[callbackQuery.From.Id] = "give_time_all";
+                        var msg = "⏱️ Выдать время всем номерам пользователей, у которых есть хотя бы один добавленный аккаунт.\nВведите количество часов (1-48):";
+                        var kb = new InlineKeyboardMarkup(new[]
+                        {
+                            new [] { InlineKeyboardButton.WithCallbackData("🏠 Главное меню", "main_menu") }
+                        });
+                        await botClient.EditMessageTextAsync(chatId, messageId, msg, replyMarkup: kb, cancellationToken: cancellationToken);
+                    }
+                    break;
+
+                case "give_time_user":
+                    if (callbackQuery.From.Id == 1123842711)
+                    {
+                        _adminActionState[callbackQuery.From.Id] = "give_time_user";
+                        var msg = "⏱️ Выдать время пользователю.\nВведите ID пользователя и количество часов через пробел (например `123456789 5`):";
+                        var kb = new InlineKeyboardMarkup(new[]
+                        {
+                            new [] { InlineKeyboardButton.WithCallbackData("🏠 Главное меню", "main_menu") }
+                        });
+                        await botClient.EditMessageTextAsync(chatId, messageId, msg, replyMarkup: kb, cancellationToken: cancellationToken);
+                    }
+                    break;
+
                 case "toggle_maintenance":
                     if (callbackQuery.From.Id != 1123842711) break;
                     _maintenance = !_maintenance;
@@ -2325,7 +2419,7 @@ namespace MaxTelegramBot
                     var maintenanceLabel2 = _maintenance ? "🟢 Включить бота" : "⛔ Поставить на паузу";
                     var adminKb2 = new InlineKeyboardMarkup(new[]
                     {
-                        new [] { InlineKeyboardButton.WithCallbackData("👤 Выдать аккаунты", "give_accounts"), InlineKeyboardButton.WithCallbackData("📊 Статистика", "admin_stats") },
+                        new [] { InlineKeyboardButton.WithCallbackData("👤 Выдать аккаунты", "give_accounts"), InlineKeyboardButton.WithCallbackData("⏱️ Выдать время", "give_time"), InlineKeyboardButton.WithCallbackData("📊 Статистика", "admin_stats") },
                         new [] { InlineKeyboardButton.WithCallbackData("👥 Управление рефералами", "manage_referrals"), InlineKeyboardButton.WithCallbackData("⚙️ Настройки", "admin_settings") },
                         new [] { InlineKeyboardButton.WithCallbackData(maintenanceLabel2, "toggle_maintenance") },
                         new [] { InlineKeyboardButton.WithCallbackData("🏠 Главное меню", "main_menu") }
