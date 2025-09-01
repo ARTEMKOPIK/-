@@ -625,7 +625,14 @@ namespace MaxTelegramBot
                                                         _awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
                                                         _userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
                                                         StartAuthorizationTimeout(telegramUserId, chatId, userDataDir);
-                                                        try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа."); } catch {}
+                                                        var cancelKeyboard = new InlineKeyboardMarkup(new[]
+                                                        {
+                                                            new []
+                                                            {
+                                                                InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth")
+                                                            }
+                                                        });
+                                                        try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа.", replyMarkup: cancelKeyboard); } catch {}
                                                         return; // Выходим из функции, так как код уже найден
                                                 }
                                         }
@@ -848,7 +855,14 @@ namespace MaxTelegramBot
                                         _awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
                                         _userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
                                         StartAuthorizationTimeout(telegramUserId, chatId, userDataDir);
-                                        try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа."); } catch {}
+                                        var cancelKb = new InlineKeyboardMarkup(new[]
+                                        {
+                                            new []
+                                            {
+                                                InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth")
+                                            }
+                                        });
+                                        try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа.", replyMarkup: cancelKb); } catch {}
                                 }
                                 else
                                 {
@@ -856,7 +870,14 @@ namespace MaxTelegramBot
                                         _awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
                                         _userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
                                         StartAuthorizationTimeout(telegramUserId, chatId, userDataDir);
-                                        try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа."); } catch {}
+                                        var cancelKb2 = new InlineKeyboardMarkup(new[]
+                                        {
+                                            new []
+                                            {
+                                                InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth")
+                                            }
+                                        });
+                                        try { await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа.", replyMarkup: cancelKb2); } catch {}
                                 }
                         }
                         catch (Exception ex)
@@ -868,7 +889,14 @@ namespace MaxTelegramBot
                                         _awaitingCodeSessionDirByUser[telegramUserId] = userDataDir;
                                         _userPhoneNumbers[telegramUserId] = phone; // Сохраняем номер телефона
                                         StartAuthorizationTimeout(telegramUserId, chatId, userDataDir);
-                                        await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа.");
+                                        var cancelKb3 = new InlineKeyboardMarkup(new[]
+                                        {
+                                            new []
+                                            {
+                                                InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth")
+                                            }
+                                        });
+                                        await _botClient.SendTextMessageAsync(chatId, "✉️ Введите 6-значный код из MAX для входа.", replyMarkup: cancelKb3);
                                 }
                                 catch {}
                         }
@@ -1864,6 +1892,25 @@ namespace MaxTelegramBot
             {
                 var phone = callbackQuery.Data.Substring("start_account:".Length);
                 Console.WriteLine($"Запуск аккаунта для номера {phone}");
+
+                // Не допускаем повторный запуск, если авторизация уже ожидает код
+                if (_awaitingCodeSessionDirByUser.ContainsKey(callbackQuery.From.Id))
+                {
+                    var activePhone = _userPhoneNumbers.TryGetValue(callbackQuery.From.Id, out var p) ? p : "неизвестный номер";
+                    var kb = new InlineKeyboardMarkup(new[]
+                    {
+                        new [] { InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth") }
+                    });
+                    try { await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, "Авторизация уже запущена", showAlert: true, cancellationToken: cancellationToken); } catch {}
+                    await botClient.SendTextMessageAsync(chatId, $"⚠️ Авторизация номера {activePhone} уже выполняется. Введите код из MAX или отмените авторизацию.", replyMarkup: kb, cancellationToken: cancellationToken);
+                    return;
+                }
+
+                if (_sessionDirByPhone.ContainsKey(phone))
+                {
+                    try { await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, "Авторизация для этого номера уже выполняется", showAlert: true, cancellationToken: cancellationToken); } catch {}
+                    return;
+                }
 
                 // Проверяем: есть ли остаток времени на этом номере (бесплатное возобновление)
                 var hasRemaining = _warmingRemainingByPhone.TryGetValue(phone, out var remain) && remain > TimeSpan.Zero;
