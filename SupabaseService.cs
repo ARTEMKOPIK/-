@@ -945,6 +945,28 @@ namespace MaxTelegramBot
             }
         }
 
+        public async Task<List<User>> GetAllUsersAsync()
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_supabaseUrl}/rest/v1/users?select=id,username,paid_accounts,phone_numbers");
+                var content = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"GetAllUsersAsync: {response.StatusCode} - {content}");
+                    return new List<User>();
+                }
+
+                var users = JsonConvert.DeserializeObject<List<User>>(content);
+                return users ?? new List<User>();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка GetAllUsersAsync: {ex.Message}");
+                return new List<User>();
+            }
+        }
+
         public async Task<List<long>> GetAllUserIdsAsync()
         {
             var userIds = new List<long>();
