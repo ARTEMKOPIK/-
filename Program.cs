@@ -44,6 +44,7 @@ namespace MaxTelegramBot
         private static readonly Dictionary<long, string> _lastSessionDirByUser = new Dictionary<long, string>();
         private static readonly HashSet<long> _awaitingPaymentQtyUserIds = new HashSet<long>();
         private static readonly Dictionary<long, string> _awaitingHoursByUser = new();
+        private static readonly Dictionary<long, string> _awaitingIntervalByUser = new();
         private static readonly Dictionary<string, string> _sessionDirByPhone = new Dictionary<string, string>();
 
         // Сессии для повторной проверки входа
@@ -52,6 +53,7 @@ namespace MaxTelegramBot
         private static readonly Dictionary<string, DateTime> _warmingEndsByPhone = new Dictionary<string, DateTime>();
         private static readonly Dictionary<string, CancellationTokenSource> _warmingCtsByPhone = new Dictionary<string, CancellationTokenSource>();
         private static readonly Dictionary<string, TimeSpan> _warmingRemainingByPhone = new Dictionary<string, TimeSpan>();
+        private static readonly Dictionary<string, (int Min, int Max)> _warmingIntervalsByPhone = new();
         private static readonly Dictionary<long, string> _resumeFreeByUser = new Dictionary<long, string>();
 
         private static readonly string WarmingStateFile = "warming_state.json";
@@ -61,6 +63,7 @@ namespace MaxTelegramBot
         {
             public Dictionary<string, double> Running { get; set; } = new();
             public Dictionary<string, double> Paused { get; set; } = new();
+            public Dictionary<string, int[]>? Intervals { get; set; } = new();
         }
 
         // Отслеживание последнего использованного номера для каждого пользователя
@@ -1760,6 +1763,19 @@ namespace MaxTelegramBot
                     await botClient.SendTextMessageAsync(chatId, "❌ Неверный формат. Используйте: ID часы (1-48).", cancellationToken: cancellationToken);
                 }
             }
+            else if (message.From != null && _awaitingIntervalByUser.TryGetValue(message.From.Id, out var phoneForInterval))
+            {
+                if (TryParseInterval(messageText, out var minSec, out var maxSec))
+                {
+                    _awaitingIntervalByUser.Remove(message.From.Id);
+                    SetMessageInterval(phoneForInterval, minSec, maxSec);
+                    await botClient.SendTextMessageAsync(chatId, $"✅ Интервал для {phoneForInterval} установлен: {minSec}-{maxSec} сек.", cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await botClient.SendTextMessageAsync(chatId, "❌ Неверный формат. Введите интервал, например 30-120.", cancellationToken: cancellationToken);
+                }
+            }
             else if (message.From != null && _awaitingHoursByUser.TryGetValue(message.From.Id, out var phoneForHours)
                      && int.TryParse(messageText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var hours) && hours >= 1 && hours <= 48)
             {
@@ -2013,6 +2029,7 @@ namespace MaxTelegramBot
             if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("acc:"))
             {
                 var phone = callbackQuery.Data.Substring("acc:".Length);
+                _awaitingIntervalByUser.Remove(callbackQuery.From.Id);
                 var statusText = FormatWarmingText(phone);
                 var cardText = $"📞 Номер: {phone}\n{statusText}";
                 InlineKeyboardMarkup cardKb;
@@ -2024,6 +2041,7 @@ namespace MaxTelegramBot
                             InlineKeyboardButton.WithCallbackData("🛑 Остановить", $"stop_warming:{phone}"),
                             InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"delete_account:{phone}")
                         },
+                        new [] { InlineKeyboardButton.WithCallbackData("⚙️ Настройки", $"warming_settings:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("🛒 Купить часы", $"buy_hours:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("← Назад", "my_accounts") }
                     });
@@ -2036,11 +2054,28 @@ namespace MaxTelegramBot
                             InlineKeyboardButton.WithCallbackData("▶️ Запустить", $"start_account:{phone}"),
                             InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"delete_account:{phone}")
                         },
+                        new [] { InlineKeyboardButton.WithCallbackData("⚙️ Настройки", $"warming_settings:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("🛒 Купить часы", $"buy_hours:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("← Назад", "my_accounts") }
                     });
                 }
                 await botClient.EditMessageTextAsync(chatId, messageId, cardText, replyMarkup: cardKb, cancellationToken: cancellationToken);
+                return;
+            }
+
+            // Настройки прогрева: warming_settings:<phone>
+            if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("warming_settings:"))
+            {
+                var phone = callbackQuery.Data.Substring("warming_settings:".Length);
+                var (minSec, maxSec) = GetMessageInterval(phone);
+                _awaitingIntervalByUser[callbackQuery.From.Id] = phone;
+                var kb = new InlineKeyboardMarkup(new[]
+                {
+                    new [] { InlineKeyboardButton.WithCallbackData("❌ Отмена", $"acc:{phone}") }
+                });
+                await botClient.EditMessageTextAsync(chatId, messageId,
+                    $"⚙️ Интервал сообщений для {phone}\nТекущий: {minSec}-{maxSec} сек\nВведите новый интервал в формате мин-макс:",
+                    replyMarkup: kb, cancellationToken: cancellationToken);
                 return;
             }
 
@@ -3897,8 +3932,8 @@ namespace MaxTelegramBot
                                             // Вводим случайное сообщение из шаблона
                                             await SendRandomMessageAsync(cdp);
                                                         
-                                                        // Ждем от 30 до 100 секунд между сообщениями (случайная задержка)
-                                                        var delaySeconds = new Random().Next(30, 101);
+                                                        var (minDelay, maxDelay) = GetMessageInterval(phoneNumber);
+                                                        var delaySeconds = new Random().Next(minDelay, maxDelay + 1);
                                                         Console.WriteLine($"[MAX] ⏳ Жду {delaySeconds} секунд перед следующим сообщением...");
                                                         await Task.Delay(delaySeconds * 1000);
                                                         
@@ -4489,7 +4524,13 @@ namespace MaxTelegramBot
                             paused[kv.Key] = kv.Value.TotalSeconds;
                     }
 
-                    var state = new PersistedWarmingState { Running = running, Paused = paused };
+                    var intervals = new Dictionary<string, int[]>();
+                    foreach (var kv in _warmingIntervalsByPhone)
+                    {
+                        intervals[kv.Key] = new[] { kv.Value.Min, kv.Value.Max };
+                    }
+
+                    var state = new PersistedWarmingState { Running = running, Paused = paused, Intervals = intervals };
                     var json = JsonConvert.SerializeObject(state);
                     System.IO.File.WriteAllText(WarmingStateFile, json);
                 }
@@ -4514,6 +4555,18 @@ namespace MaxTelegramBot
                     }
                 }
 
+                if (state.Intervals != null)
+                {
+                    foreach (var kv in state.Intervals)
+                    {
+                        var arr = kv.Value;
+                        if (arr != null && arr.Length == 2)
+                        {
+                            _warmingIntervalsByPhone[kv.Key] = (arr[0], arr[1]);
+                        }
+                    }
+                }
+
                 if (state.Running != null)
                 {
                     foreach (var kv in state.Running)
@@ -4527,6 +4580,34 @@ namespace MaxTelegramBot
                 }
             }
             catch { }
+        }
+
+        private static (int Min, int Max) GetMessageInterval(string phone)
+        {
+            if (_warmingIntervalsByPhone.TryGetValue(phone, out var interval))
+                return interval;
+            return (30, 120);
+        }
+
+        private static void SetMessageInterval(string phone, int min, int max)
+        {
+            _warmingIntervalsByPhone[phone] = (min, max);
+            SaveWarmingState();
+        }
+
+        private static bool TryParseInterval(string text, out int min, out int max)
+        {
+            min = max = 0;
+            var parts = text.Replace(" ", "").Split('-', '–');
+            if (parts.Length == 2 &&
+                int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var a) &&
+                int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var b))
+            {
+                min = Math.Min(a, b);
+                max = Math.Max(a, b);
+                return min > 0 && max >= min;
+            }
+            return false;
         }
         
         private static async Task SendRandomMessageAsync(MaxWebAutomation cdp)
