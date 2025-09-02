@@ -2692,6 +2692,12 @@ namespace MaxTelegramBot
                 case "affiliate":
                     await HandleAffiliateProgramAsync(botClient, callbackQuery, cancellationToken);
                     break;
+                case "affiliate_stats":
+                    await HandleAffiliateStatsAsync(botClient, callbackQuery, cancellationToken);
+                    break;
+                case "affiliate_referrals":
+                    await HandleAffiliateReferralsAsync(botClient, callbackQuery, cancellationToken);
+                    break;
                 case "affiliate_withdraw":
                     await HandleAffiliateWithdrawAsync(botClient, callbackQuery, cancellationToken);
                     break;
@@ -3122,6 +3128,116 @@ namespace MaxTelegramBot
             }
         }
 
+        // Обработчик просмотра статистики партнерской программы
+        private static async Task HandleAffiliateStatsAsync(ITelegramBotClient botClient, CallbackQuery callbackQuery, CancellationToken cancellationToken)
+        {
+            var chatId = callbackQuery.Message?.Chat.Id;
+            var messageId = callbackQuery.Message?.MessageId;
+            var userId = callbackQuery.From?.Id;
+
+            if (chatId == null || messageId == null || userId == null)
+            {
+                await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, "Ошибка получения данных", cancellationToken: cancellationToken);
+                return;
+            }
+
+            try
+            {
+                await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, cancellationToken: cancellationToken);
+
+                // Загружаем данные о пользователе и его рефералах
+                var affiliateUser = await _supabaseService.GetAffiliateUserAsync(userId.Value);
+                var referrals = await _supabaseService.GetUserReferralsAsync(userId.Value);
+                var earnings = await _supabaseService.GetUserEarningsAsync(userId.Value);
+
+                var pending = earnings.Where(e => e.Status == "pending").Sum(e => e.AmountUsdt);
+                var paid = earnings.Where(e => e.Status != "pending").Sum(e => e.AmountUsdt);
+
+                var statsMessage = $"📊 **Статистика партнерской программы**\n\n" +
+                                   $"👥 Всего рефералов: {referrals.Count}\n" +
+                                   $"🔥 Активных: {referrals.Count(r => r.PaidAccounts > 0)}\n\n" +
+                                   $"💰 Баланс: {affiliateUser?.AffiliateBalance ?? 0:F2} USDT\n" +
+                                   $"💸 Всего заработано: {affiliateUser?.TotalEarned ?? 0:F2} USDT\n" +
+                                   $"⏳ В ожидании: {pending:F2} USDT\n" +
+                                   $"✅ Выплачено: {paid:F2} USDT";
+
+                var keyboard = new InlineKeyboardMarkup(new[]
+                {
+                    new [] { InlineKeyboardButton.WithCallbackData("👥 Партнерская программа", "affiliate"), InlineKeyboardButton.WithCallbackData("👥 Мои рефералы", "affiliate_referrals") },
+                    new [] { InlineKeyboardButton.WithCallbackData("🏠 Главное меню", "main_menu") }
+                });
+
+                await botClient.EditMessageTextAsync(chatId.Value, messageId.Value, statsMessage, replyMarkup: keyboard, parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AFFILIATE] Ошибка загрузки статистики: {ex.Message}");
+                await botClient.EditMessageTextAsync(chatId.Value, messageId.Value, "❌ Ошибка загрузки статистики.", cancellationToken: cancellationToken);
+            }
+        }
+
+        // Обработчик просмотра списка рефералов
+        private static async Task HandleAffiliateReferralsAsync(ITelegramBotClient botClient, CallbackQuery callbackQuery, CancellationToken cancellationToken)
+        {
+            var chatId = callbackQuery.Message?.Chat.Id;
+            var messageId = callbackQuery.Message?.MessageId;
+            var userId = callbackQuery.From?.Id;
+
+            if (chatId == null || messageId == null || userId == null)
+            {
+                await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, "Ошибка получения данных", cancellationToken: cancellationToken);
+                return;
+            }
+
+            try
+            {
+                await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, cancellationToken: cancellationToken);
+
+                var referrals = await _supabaseService.GetUserReferralsAsync(userId.Value);
+
+                if (referrals.Count == 0)
+                {
+                    var emptyMessage = $"👥 **Мои рефералы**\n\nУ вас пока нет рефералов.";
+                    var emptyKb = new InlineKeyboardMarkup(new[]
+                    {
+                        new [] { InlineKeyboardButton.WithCallbackData("👥 Партнерская программа", "affiliate"), InlineKeyboardButton.WithCallbackData("📊 Статистика", "affiliate_stats") },
+                        new [] { InlineKeyboardButton.WithCallbackData("🏠 Главное меню", "main_menu") }
+                    });
+
+                    await botClient.EditMessageTextAsync(chatId.Value, messageId.Value, emptyMessage, replyMarkup: emptyKb, parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
+                    return;
+                }
+
+                var referralsMessage = new StringBuilder();
+                referralsMessage.AppendLine("👥 **Мои рефералы**\n");
+
+                int i = 1;
+                foreach (var r in referrals.OrderByDescending(r => r.RegistrationDate).Take(10))
+                {
+                    var name = string.IsNullOrEmpty(r.Username) ? $"ID:{r.Id}" : $"@{r.Username}";
+                    var state = r.PaidAccounts > 0 ? "активен" : "не активен";
+                    referralsMessage.AppendLine($"{i}. {name} — {state} (с {r.RegistrationDate:dd.MM.yyyy})");
+                    i++;
+                }
+
+                referralsMessage.AppendLine();
+                referralsMessage.AppendLine($"Всего: {referrals.Count}, активных: {referrals.Count(r => r.PaidAccounts > 0)}");
+
+                var kb = new InlineKeyboardMarkup(new[]
+                {
+                    new [] { InlineKeyboardButton.WithCallbackData("📊 Статистика", "affiliate_stats"), InlineKeyboardButton.WithCallbackData("👥 Партнерская программа", "affiliate") },
+                    new [] { InlineKeyboardButton.WithCallbackData("🏠 Главное меню", "main_menu") }
+                });
+
+                await botClient.EditMessageTextAsync(chatId.Value, messageId.Value, referralsMessage.ToString(), replyMarkup: kb, parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AFFILIATE] Ошибка загрузки рефералов: {ex.Message}");
+                await botClient.EditMessageTextAsync(chatId.Value, messageId.Value, "❌ Ошибка загрузки списка рефералов.", cancellationToken: cancellationToken);
+            }
+        }
+
         // Обработчик истории выводов
         private static async Task HandleAffiliateHistoryAsync(ITelegramBotClient botClient, CallbackQuery callbackQuery, CancellationToken cancellationToken)
         {
@@ -3172,9 +3288,15 @@ namespace MaxTelegramBot
                         _ => "❓ Неизвестно"
                     };
 
-                    historyMessage += $"💰 **{withdrawal.AmountUsdt:F2} USDT**\n" +
-                                    $"📅 {withdrawal.CreatedAt:dd.MM.yyyy HH:mm}\n" +
-                                    $"📊 Статус: {status}\n\n";
+                    historyMessage += $"💰 **{withdrawal.AmountUsdt:F2} USDT** ({withdrawal.Network})\n" +
+                                      $"📅 {withdrawal.CreatedAt:dd.MM.yyyy HH:mm}\n" +
+                                      $"👛 {withdrawal.WalletAddress}\n" +
+                                      $"📊 Статус: {status}\n";
+
+                    if (withdrawal.Status == "completed" && withdrawal.ProcessedAt.HasValue)
+                        historyMessage += $"✅ Выплачено: {withdrawal.ProcessedAt.Value:dd.MM.yyyy HH:mm}\n";
+
+                    historyMessage += "\n";
 
                     if (withdrawal.Status == "completed")
                         totalWithdrawn += withdrawal.AmountUsdt;
