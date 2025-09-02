@@ -2968,21 +2968,17 @@ namespace MaxTelegramBot
                 // Используем данные из affiliate_users или временные значения
                 var affiliateCode = affiliateUser?.AffiliateCode ?? $"REF{userId}";
                 var affiliateBalance = affiliateUser?.AffiliateBalance ?? 0;
-                var totalEarned = affiliateUser?.TotalEarned ?? 0;
-                var totalReferrals = affiliateUser?.TotalReferrals ?? 0;
-                var activeReferrals = affiliateUser?.ActiveReferrals ?? 0;
 
                 // Получаем статистику рефералов
                 var referrals = await _supabaseService.GetUserReferralsAsync(userId.Value);
                 var earnings = await _supabaseService.GetUserEarningsAsync(userId.Value);
-                
+
                 // Рассчитываем статистику
-                var pendingEarnings = earnings.Where(e => e.Status == "pending").Sum(e => e.AmountUsdt);
+                var totalEarned = earnings.Sum(e => e.AmountUsdt);
 
                 var affiliateMessage = $"👥 **Партнерская программа**\n\n" +
                                      $"💰 **Ваш баланс:** {affiliateBalance:F2} USDT\n" +
-                                     $"📈 **Всего заработано:** {totalEarned:F2} USDT\n" +
-                                     $"⏳ **Ожидает выплаты:** {pendingEarnings:F2} USDT\n\n" +
+                                     $"📈 **Всего заработано:** {totalEarned:F2} USDT\n\n" +
                                      $"👥 **Рефералы:** {referrals.Count} человек\n" +
                                      $"📊 **Активные рефералы:** {referrals.Count(r => r.PaidAccounts > 0)} человек\n\n" +
                                      $"🔗 **Ваша реферальная ссылка:**\n" +
@@ -3153,15 +3149,14 @@ namespace MaxTelegramBot
                 var referrals = await _supabaseService.GetUserReferralsAsync(userId.Value);
                 var earnings = await _supabaseService.GetUserEarningsAsync(userId.Value);
 
-                var pending = earnings.Where(e => e.Status == "pending").Sum(e => e.AmountUsdt);
+                var totalEarned = earnings.Sum(e => e.AmountUsdt);
                 var paid = earnings.Where(e => e.Status != "pending").Sum(e => e.AmountUsdt);
 
                 var statsMessage = $"📊 **Статистика партнерской программы**\n\n" +
                                    $"👥 Всего рефералов: {referrals.Count}\n" +
                                    $"🔥 Активных: {referrals.Count(r => r.PaidAccounts > 0)}\n\n" +
                                    $"💰 Баланс: {affiliateUser?.AffiliateBalance ?? 0:F2} USDT\n" +
-                                   $"💸 Всего заработано: {affiliateUser?.TotalEarned ?? 0:F2} USDT\n" +
-                                   $"⏳ В ожидании: {pending:F2} USDT\n" +
+                                   $"💸 Всего заработано: {totalEarned:F2} USDT\n" +
                                    $"✅ Выплачено: {paid:F2} USDT";
 
                 var keyboard = new InlineKeyboardMarkup(new[]
