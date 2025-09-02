@@ -3077,10 +3077,13 @@ namespace MaxTelegramBot
                     return;
                 }
 
+                // Сохраняем сумму к выводу до обнуления баланса
+                var amountToWithdraw = affiliateUser.AffiliateBalance;
+
                 // Создаем чек для выплаты
                 var check = await _cryptoPayService.CreateCheckAsync(
-                    affiliateUser.AffiliateBalance, 
-                    "USDT", 
+                    amountToWithdraw,
+                    "USDT",
                     $"Выплата партнерской программы пользователю {user.Username}"
                 );
 
@@ -3095,15 +3098,15 @@ namespace MaxTelegramBot
 
                 // Создаем запись о выводе
                 await _supabaseService.CreateWithdrawalRequestAsync(
-                    userId.Value, 
-                    affiliateUser.AffiliateBalance, 
-                    "Crypto Pay Check", 
+                    userId.Value,
+                    amountToWithdraw,
+                    "Crypto Pay Check",
                     "USDT"
                 );
 
                 // Отправляем сообщение с чеком
                 var successMessage = $"✅ **Выплата успешно создана!**\n\n" +
-                                   $"💰 Сумма: {affiliateUser.AffiliateBalance:F2} USDT\n" +
+                                   $"💰 Сумма: {amountToWithdraw:F2} USDT\n" +
                                    $"📅 Дата: {DateTime.Now:dd.MM.yyyy HH:mm}\n" +
                                    $"🆔 ID чека: {check.CheckId}\n\n" +
                                    $"🔗 **Ваш чек:**\n" +
@@ -3119,7 +3122,7 @@ namespace MaxTelegramBot
 
                 await botClient.EditMessageTextAsync(chatId.Value, messageId.Value, successMessage, replyMarkup: successKeyboard, parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
 
-                Console.WriteLine($"[AFFILIATE] ✅ Выплата создана для {user.Username}: {affiliateUser.AffiliateBalance:F2} USDT (чек: {check.CheckId})");
+                Console.WriteLine($"[AFFILIATE] ✅ Выплата создана для {user.Username}: {amountToWithdraw:F2} USDT (чек: {check.CheckId})");
             }
             catch (Exception ex)
             {

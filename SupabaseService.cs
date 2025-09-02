@@ -524,18 +524,22 @@ namespace MaxTelegramBot
         {
             try
             {
-                var withdrawal = new WithdrawalRequest
+                var payload = new
                 {
-                    UserId = userId,
-                    AmountUsdt = amount,
-                    WalletAddress = walletAddress,
-                    Network = network
+                    user_id = userId,
+                    amount_usdt = amount,
+                    wallet_address = walletAddress,
+                    network = network,
+                    status = "pending",
+                    created_at = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
                 };
 
-                var json = JsonConvert.SerializeObject(withdrawal);
+                var json = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 var response = await _httpClient.PostAsync($"{_supabaseUrl}/rest/v1/withdrawal_requests", content);
+                var resp = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"CreateWithdrawalRequestAsync: {response.StatusCode} - {resp}");
                 return response.IsSuccessStatusCode;
             }
             catch (Exception ex)
