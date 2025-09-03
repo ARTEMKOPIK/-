@@ -4,6 +4,7 @@ using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
+using System;
 using System.Globalization;
 using System.Text;
 using Newtonsoft.Json.Linq;
@@ -54,6 +55,8 @@ namespace MaxTelegramBot
         private static readonly Dictionary<string, CancellationTokenSource> _warmingCtsByPhone = new Dictionary<string, CancellationTokenSource>();
         private static readonly Dictionary<string, TimeSpan> _warmingRemainingByPhone = new Dictionary<string, TimeSpan>();
         private static readonly Dictionary<string, (int Min, int Max)> _warmingIntervalsByPhone = new();
+        // Тип прогрева для каждого номера: "Max" или "WhatsApp"
+        private static readonly Dictionary<string, string> _warmingTypeByPhone = new();
         private static readonly Dictionary<long, string> _resumeFreeByUser = new Dictionary<long, string>();
 
         private static readonly string WarmingStateFile = "warming_state.json";
@@ -1120,6 +1123,53 @@ namespace MaxTelegramBot
             return true; // сообщение обработано
         }
 
+
+        private static async Task<string> LaunchWhatsAppWebAsync(string phone)
+        {
+            await _browserSemaphore.WaitAsync();
+
+            try
+            {
+                var chrome = TryGetChromePath();
+                var safePhone = new string((phone ?? "").Where(char.IsDigit).ToArray());
+                var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+                var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+                var userDir = Path.Combine(Path.GetTempPath(), $"wa_web_{safePhone}_{timestamp}_{randomSuffix}");
+                Directory.CreateDirectory(userDir);
+
+                var userAgent = GenerateRandomUserAgent();
+                Console.WriteLine($"[WA] Запускаю Chrome для {phone} с User-Agent: {userAgent}");
+
+                if (!string.IsNullOrEmpty(chrome))
+                {
+                    var args = $"--new-window --user-data-dir=\\\"{userDir}\\\" --remote-debugging-port=0 --user-agent=\\\"{userAgent}\\\" --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage --disable-web-security --disable-features=VizDisplayCompositor --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-ipc-flooding-protection --memory-pressure-off --max_old_space_size=128 --disable-extensions --disable-plugins --disable-images --disable-animations --disable-video --disable-audio --disable-webgl --disable-canvas-aa --disable-2d-canvas-clip-aa --disable-accelerated-2d-canvas --disable-accelerated-jpeg-decoding --disable-accelerated-mjpeg-decode --disable-accelerated-video-decode --disable-accelerated-video-encode --disable-gpu-sandbox --disable-software-rasterizer --disable-background-networking --disable-default-apps --disable-sync --disable-translate --hide-scrollbars --mute-audio --no-first-run --no-default-browser-check --no-sandbox --disable-setuid-sandbox https://web.whatsapp.com/";
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = chrome,
+                        Arguments = args,
+                        UseShellExecute = false,
+                        WorkingDirectory = Path.GetDirectoryName(chrome) ?? string.Empty
+                    };
+                    Process.Start(psi);
+                    Console.WriteLine($"[WA] Открыл Chrome для {phone} с User-Agent: {userAgent} в папке: {Path.GetFileName(userDir)}");
+                }
+                else
+                {
+                    var psi = new ProcessStartInfo { FileName = "https://web.whatsapp.com/", UseShellExecute = true };
+                    Process.Start(psi);
+                    Console.WriteLine($"[WA] Chrome не найден, открыл URL в браузере по умолчанию для {phone}");
+                }
+
+                return userDir;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WA] Ошибка запуска браузера: {ex.Message}");
+                _browserSemaphore.Release();
+                throw;
+            }
+        }
+
         static async Task Main(string[] args)
         {
             try
@@ -2013,10 +2063,21 @@ namespace MaxTelegramBot
                 {
                     try
                     {
-                        var userDataDirBg = await LaunchMaxWebAsync(phone);
-                        _lastSessionDirByUser[callbackQuery.From.Id] = userDataDirBg;
-                        _sessionDirByPhone[phone] = userDataDirBg; // Сохраняем директорию по номеру телефона
-                        await AutoFillPhoneAsync(userDataDirBg, phone, callbackQuery.From.Id, chatId);
+                        var type = GetWarmingType(phone);
+                        string userDataDirBg;
+                        if (type.Equals("WhatsApp", StringComparison.OrdinalIgnoreCase))
+                        {
+                            userDataDirBg = await LaunchWhatsAppWebAsync(phone);
+                            _lastSessionDirByUser[callbackQuery.From.Id] = userDataDirBg;
+                            _sessionDirByPhone[phone] = userDataDirBg;
+                        }
+                        else
+                        {
+                            userDataDirBg = await LaunchMaxWebAsync(phone);
+                            _lastSessionDirByUser[callbackQuery.From.Id] = userDataDirBg;
+                            _sessionDirByPhone[phone] = userDataDirBg; // Сохраняем директорию по номеру телефона
+                            await AutoFillPhoneAsync(userDataDirBg, phone, callbackQuery.From.Id, chatId);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -2031,7 +2092,8 @@ namespace MaxTelegramBot
                 var phone = callbackQuery.Data.Substring("acc:".Length);
                 _awaitingIntervalByUser.Remove(callbackQuery.From.Id);
                 var statusText = FormatWarmingText(phone);
-                var cardText = $"📞 Номер: {phone}\n{statusText}";
+                var type = GetWarmingType(phone);
+                var cardText = $"📞 Номер: {phone}\nТип: {type}\n{statusText}";
                 InlineKeyboardMarkup cardKb;
                 if (_warmingCtsByPhone.ContainsKey(phone))
                 {
@@ -2041,6 +2103,7 @@ namespace MaxTelegramBot
                             InlineKeyboardButton.WithCallbackData("🛑 Остановить", $"stop_warming:{phone}"),
                             InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"delete_account:{phone}")
                         },
+                        new [] { InlineKeyboardButton.WithCallbackData($"🌐 Тип: {type}", $"select_warming_type:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("⚙️ Настройки", $"warming_settings:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("🛒 Купить часы", $"buy_hours:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("← Назад", "my_accounts") }
@@ -2054,12 +2117,80 @@ namespace MaxTelegramBot
                             InlineKeyboardButton.WithCallbackData("▶️ Запустить", $"start_account:{phone}"),
                             InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"delete_account:{phone}")
                         },
+                        new [] { InlineKeyboardButton.WithCallbackData($"🌐 Тип: {type}", $"select_warming_type:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("⚙️ Настройки", $"warming_settings:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("🛒 Купить часы", $"buy_hours:{phone}") },
                         new [] { InlineKeyboardButton.WithCallbackData("← Назад", "my_accounts") }
                     });
                 }
                 await botClient.EditMessageTextAsync(chatId, messageId, cardText, replyMarkup: cardKb, cancellationToken: cancellationToken);
+                return;
+            }
+
+            // Выбор типа прогрева: select_warming_type:<phone>
+            if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("select_warming_type:"))
+            {
+                var phone = callbackQuery.Data.Substring("select_warming_type:".Length);
+                var current = GetWarmingType(phone);
+                var kb = new InlineKeyboardMarkup(new[]
+                {
+                    new [] {
+                        InlineKeyboardButton.WithCallbackData("Max", $"set_warming_type:{phone}:Max"),
+                        InlineKeyboardButton.WithCallbackData("WhatsApp", $"set_warming_type:{phone}:WhatsApp")
+                    },
+                    new [] { InlineKeyboardButton.WithCallbackData("← Назад", $"acc:{phone}") }
+                });
+                await botClient.EditMessageTextAsync(chatId, messageId,
+                    $"Выберите тип прогрева для {phone} (текущий: {current})",
+                    replyMarkup: kb, cancellationToken: cancellationToken);
+                return;
+            }
+
+            // Установка типа прогрева: set_warming_type:<phone>:<type>
+            if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("set_warming_type:"))
+            {
+                var parts = callbackQuery.Data.Split(':');
+                if (parts.Length >= 3)
+                {
+                    var phone = parts[1];
+                    var type = parts[2];
+                    _warmingTypeByPhone[phone] = type;
+                    await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, $"Тип прогрева: {type}", cancellationToken: cancellationToken);
+
+                    var statusText = FormatWarmingText(phone);
+                    var cardType = GetWarmingType(phone);
+                    var cardText = $"📞 Номер: {phone}\nТип: {cardType}\n{statusText}";
+                    InlineKeyboardMarkup cardKb;
+                    if (_warmingCtsByPhone.ContainsKey(phone))
+                    {
+                        cardKb = new InlineKeyboardMarkup(new[]
+                        {
+                            new [] {
+                                InlineKeyboardButton.WithCallbackData("🛑 Остановить", $"stop_warming:{phone}"),
+                                InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"delete_account:{phone}")
+                            },
+                            new [] { InlineKeyboardButton.WithCallbackData($"🌐 Тип: {cardType}", $"select_warming_type:{phone}") },
+                            new [] { InlineKeyboardButton.WithCallbackData("⚙️ Настройки", $"warming_settings:{phone}") },
+                            new [] { InlineKeyboardButton.WithCallbackData("🛒 Купить часы", $"buy_hours:{phone}") },
+                            new [] { InlineKeyboardButton.WithCallbackData("← Назад", "my_accounts") }
+                        });
+                    }
+                    else
+                    {
+                        cardKb = new InlineKeyboardMarkup(new[]
+                        {
+                            new [] {
+                                InlineKeyboardButton.WithCallbackData("▶️ Запустить", $"start_account:{phone}"),
+                                InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"delete_account:{phone}")
+                            },
+                            new [] { InlineKeyboardButton.WithCallbackData($"🌐 Тип: {cardType}", $"select_warming_type:{phone}") },
+                            new [] { InlineKeyboardButton.WithCallbackData("⚙️ Настройки", $"warming_settings:{phone}") },
+                            new [] { InlineKeyboardButton.WithCallbackData("🛒 Купить часы", $"buy_hours:{phone}") },
+                            new [] { InlineKeyboardButton.WithCallbackData("← Назад", "my_accounts") }
+                        });
+                    }
+                    await botClient.EditMessageTextAsync(chatId, messageId, cardText, replyMarkup: cardKb, cancellationToken: cancellationToken);
+                }
                 return;
             }
 
@@ -2202,13 +2333,17 @@ namespace MaxTelegramBot
                 catch { }
 
                 var statusText2 = FormatWarmingText(phone);
-                var cardText = $"📞 Номер: {phone}\n{statusText2}";
+                var type2 = GetWarmingType(phone);
+                var cardText = $"📞 Номер: {phone}\nТип: {type2}\n{statusText2}";
                 InlineKeyboardMarkup cardKb = new InlineKeyboardMarkup(new[]
                 {
-                    new [] { 
+                    new [] {
                         InlineKeyboardButton.WithCallbackData("▶️ Запустить", $"start_account:{phone}"),
                         InlineKeyboardButton.WithCallbackData("🗑️ Удалить", $"delete_account:{phone}")
                     },
+                    new [] { InlineKeyboardButton.WithCallbackData($"🌐 Тип: {type2}", $"select_warming_type:{phone}") },
+                    new [] { InlineKeyboardButton.WithCallbackData("⚙️ Настройки", $"warming_settings:{phone}") },
+                    new [] { InlineKeyboardButton.WithCallbackData("🛒 Купить часы", $"buy_hours:{phone}") },
                     new [] { InlineKeyboardButton.WithCallbackData("← Назад", "my_accounts") }
                 });
                 await botClient.EditMessageTextAsync(chatId, messageId, cardText, replyMarkup: cardKb, cancellationToken: cancellationToken);
@@ -4671,6 +4806,11 @@ namespace MaxTelegramBot
                 return $"⏸ На паузе: {remain.Hours:D2}:{remain.Minutes:D2}:{remain.Seconds:D2}";
             }
             return "⏸ Прогрев не запущен";
+        }
+
+        private static string GetWarmingType(string phone)
+        {
+            return _warmingTypeByPhone.TryGetValue(phone, out var type) ? type : "Max";
         }
 
         private static string FormatWarmingText(string phoneNumber)
