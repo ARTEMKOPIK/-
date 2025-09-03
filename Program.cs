@@ -1164,9 +1164,25 @@ namespace MaxTelegramBot
                         // Ждём появления поля ввода и вводим номер без первой цифры
                         await Task.Delay(5000);
                         var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
-                        var selector = "input.selectable-text.x1n2onr6.xy9n6vp.x1n327nk.xh8yej3.x972fbf.x10w94by.x1qhh985.x14e42zd.xjbqb8w.x1uvtmcs.x1jchvi3.xss6m8b.xexx8yu.xyri2b.x18d9i69.x1c1uobl";
+                        var selector = "input[aria-label='Введите свой номер телефона.']";
+                        var inputFound = false;
 
-                        if (await cdp.WaitForSelectorAsync(selector, timeoutMs: 5000))
+                        for (int attempt = 0; attempt < 3 && !inputFound; attempt++)
+                        {
+                            if (attempt > 0)
+                            {
+                                await cdp.SendAsync("Page.reload");
+                                Console.WriteLine("[WA] Перезагрузил страницу для повторной попытки");
+                                await Task.Delay(5000);
+                                await cdp.ClickButtonByTextAsync("Войти по номеру телефона");
+                                Console.WriteLine("[WA] Повторно нажал на кнопку 'Войти по номеру телефона'");
+                                await Task.Delay(5000);
+                            }
+
+                            inputFound = await cdp.WaitForSelectorAsync(selector, timeoutMs: 10000);
+                        }
+
+                        if (inputFound)
                         {
                             await cdp.SetInputValueAsync(selector, digitsForLogin);
                             Console.WriteLine($"[WA] Ввел номер {digitsForLogin} (селектор: {selector})");
