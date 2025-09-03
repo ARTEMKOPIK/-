@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using System.Globalization;
+using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -96,30 +97,38 @@ namespace MaxTelegramBot
 			}
 		}
 
-		public async Task<string?> GetInvoiceStatusAsync(string hash)
-		{
-			try
-			{
-				var response = await _httpClient.GetAsync($"getInvoices?hash={Uri.EscapeDataString(hash)}");
-				var body = await response.Content.ReadAsStringAsync();
-				Console.WriteLine($"CryptoPay getInvoices status {(int)response.StatusCode}: {body}");
-				if (!response.IsSuccessStatusCode) return null;
-				var obj = JObject.Parse(body);
-				var result = obj["result"];
-				JToken? item = null;
-				if (result?["items"] != null)
-					item = result["items"]?.First;
-				else
-					item = result;
-				var status = item?["status"]?.ToString();
-				return status;
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"Ошибка GetInvoiceStatusAsync: {ex.Message}");
-				return null;
-			}
-		}
+                public async Task<string?> GetInvoiceStatusAsync(string hash)
+                {
+                        try
+                        {
+                                var response = await _httpClient.GetAsync($"getInvoices?hash={Uri.EscapeDataString(hash)}");
+                                var body = await response.Content.ReadAsStringAsync();
+                                Console.WriteLine($"CryptoPay getInvoices status {(int)response.StatusCode}: {body}");
+                                if (!response.IsSuccessStatusCode) return null;
+
+                                var obj = JObject.Parse(body);
+                                var result = obj["result"];
+                                JToken? item = null;
+
+                                if (result?["items"] is JArray items)
+                                {
+                                        item = items.FirstOrDefault(i =>
+                                                string.Equals(i?["hash"]?.ToString(), hash, StringComparison.OrdinalIgnoreCase));
+                                }
+                                else if (string.Equals(result?["hash"]?.ToString(), hash, StringComparison.OrdinalIgnoreCase))
+                                {
+                                        item = result;
+                                }
+
+                                var status = item?["status"]?.ToString();
+                                return status;
+                        }
+                        catch (Exception ex)
+                        {
+                                Console.WriteLine($"Ошибка GetInvoiceStatusAsync: {ex.Message}");
+                                return null;
+                        }
+                }
 
 		// Автоматический перевод средств пользователю
 		public async Task<TransferInfo?> TransferAsync(string userId, decimal amount, string asset, string comment = "")
