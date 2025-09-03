@@ -2092,11 +2092,43 @@ namespace MaxTelegramBot
                 return;
             }
 
+            // Подтверждение удаления аккаунта: confirm_delete:<phone>
+            if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("confirm_delete:"))
+            {
+                var phone = callbackQuery.Data.Substring("confirm_delete:".Length);
+                await HandleDeleteAccountAsync(botClient, callbackQuery, phone, cancellationToken);
+                return;
+            }
+
             // Удаление аккаунта: delete_account:<phone>
             if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("delete_account:"))
             {
                 var phone = callbackQuery.Data.Substring("delete_account:".Length);
-                await HandleDeleteAccountAsync(botClient, callbackQuery, phone, cancellationToken);
+
+                // Проверяем наличие оставшегося времени прогрева
+                var hasWarming =
+                    (_warmingEndsByPhone.TryGetValue(phone, out var ends) && ends > DateTime.UtcNow) ||
+                    (_warmingRemainingByPhone.TryGetValue(phone, out var remain) && remain > TimeSpan.Zero);
+
+                if (hasWarming)
+                {
+                    var warnText =
+                        $"⚠️ На номере {phone} есть оставшееся время прогрева.\n" +
+                        $"При удалении это время будет потеряно.\n\n" +
+                        $"Удалить номер?";
+                    var warnKb = new InlineKeyboardMarkup(new[]
+                    {
+                        new [] { InlineKeyboardButton.WithCallbackData("✅ Удалить", $"confirm_delete:{phone}") },
+                        new [] { InlineKeyboardButton.WithCallbackData("❌ Отмена", $"acc:{phone}") }
+                    });
+
+                    await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, cancellationToken: cancellationToken);
+                    await botClient.EditMessageTextAsync(chatId, messageId, warnText, replyMarkup: warnKb, cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await HandleDeleteAccountAsync(botClient, callbackQuery, phone, cancellationToken);
+                }
                 return;
             }
 
