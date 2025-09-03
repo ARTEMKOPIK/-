@@ -1158,38 +1158,31 @@ namespace MaxTelegramBot
                     try
                     {
                         await using var cdp = await MaxWebAutomation.ConnectAsync(userDir, "web.whatsapp.com");
-                        var clicked = await cdp.ClickButtonByTextAsync("Войти по номеру телефона");
-                        if (clicked)
+                        await cdp.ClickButtonByTextAsync("Войти по номеру телефона");
+                        Console.WriteLine("[WA] Нажал на кнопку 'Войти по номеру телефона'");
+
+                        // Ждём появления поля ввода и вводим номер без первой цифры
+                        await Task.Delay(5000);
+                        const string phoneInputSelector = "input[aria-label='Введите свой номер телефона.']";
+
+                        var found = await cdp.WaitForSelectorAsync(phoneInputSelector);
+                        if (found)
                         {
-                            Console.WriteLine("[WA] Нажал на кнопку 'Войти по номеру телефона'");
-
-                            // Ждём появления поля ввода и вводим номер без первой цифры
-                            await Task.Delay(5000);
-                            const string phoneInputSelector = "input[aria-label='Введите свой номер телефона.']";
-
-                            var found = await cdp.WaitForSelectorAsync(phoneInputSelector);
-                            if (found)
+                            Console.WriteLine("[WA] Поле ввода номера найдено");
+                            var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
+                            var success = await cdp.SetInputValueAsync(phoneInputSelector, digitsForLogin);
+                            if (success)
                             {
-                                Console.WriteLine("[WA] Поле ввода номера найдено");
-                                var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
-                                var success = await cdp.SetInputValueAsync(phoneInputSelector, digitsForLogin);
-                                if (success)
-                                {
-                                    Console.WriteLine($"[WA] Ввел номер {digitsForLogin} через JavaScript");
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"[WA] Не удалось ввести номер {digitsForLogin} через JavaScript");
-                                }
+                                Console.WriteLine($"[WA] Ввел номер {digitsForLogin} через JavaScript");
                             }
                             else
                             {
-                                Console.WriteLine($"[WA] Поле ввода номера не найдено по селектору: {phoneInputSelector}");
+                                Console.WriteLine($"[WA] Не удалось ввести номер {digitsForLogin} через JavaScript");
                             }
                         }
                         else
                         {
-                            Console.WriteLine("[WA] Кнопка 'Войти по номеру телефона' не найдена");
+                            Console.WriteLine($"[WA] Поле ввода номера не найдено по селектору: {phoneInputSelector}");
                         }
                     }
                     catch (Exception ex)
