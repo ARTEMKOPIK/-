@@ -3126,13 +3126,21 @@ namespace MaxTelegramBot
                 // Обновляем баланс пользователя (обнуляем)
                 await _supabaseService.UpdateUserAffiliateBalanceAsync(userId.Value, 0, affiliateUser.TotalEarned);
 
-                // Создаем запись о выводе
-                await _supabaseService.CreateWithdrawalRequestAsync(
+                // Создаем запись о выводе средств в истории
+                var withdrawalLogged = await _supabaseService.CreateWithdrawalRequestAsync(
                     userId.Value,
                     amountToWithdraw,
                     "Crypto Pay Check",
-                    "USDT"
+                    "CRYPTO_PAY"
                 );
+
+                if (!withdrawalLogged)
+                {
+                    await botClient.EditMessageTextAsync(chatId.Value, messageId.Value,
+                        "❌ Ошибка сохранения истории вывода. Попробуйте позже.",
+                        cancellationToken: cancellationToken);
+                    return;
+                }
 
                 // Отправляем сообщение с чеком
                 var successMessage = $"✅ **Выплата успешно создана!**\n\n" +
