@@ -149,16 +149,18 @@ namespace MaxTelegramBot
                         });
                 }
 
-                public async Task SetInputValueAsync(string cssSelector, string value)
+                public async Task<bool> SetInputValueAsync(string cssSelector, string value)
                 {
                         var expr = "(function(){var el=document.querySelector('" + EscapeJs(cssSelector) + "');" +
                                    " if(el){if('value' in el){el.value='" + EscapeJs(value) + "';}else{el.textContent='" + EscapeJs(value) + "';}" +
                                    " el.dispatchEvent(new Event('input',{bubbles:true})); return true;} return false;})()";
-                        await SendAsync("Runtime.evaluate", new JObject
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
                         {
                                 ["expression"] = expr,
-                                ["awaitPromise"] = false
+                                ["awaitPromise"] = false,
+                                ["returnByValue"] = true
                         });
+                        return resp?["result"]?["value"]?.Value<bool?>() == true;
                 }
 
                 public async Task ClearInputAsync()
