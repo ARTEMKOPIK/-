@@ -209,7 +209,20 @@ namespace MaxTelegramBot
 
 		public async Task<bool> TypeIntoFirstVisibleTextInputAsync(string text)
 		{
-			var expr = "(function(txt){function vis(el){var s=getComputedStyle(el);if(s.display==='none'||s.visibility==='hidden')return false;var r=el.getBoundingClientRect();return r.width>0&&r.height>0;}var inputs=Array.from(document.querySelectorAll('input')).filter(function(el){var t=(el.getAttribute('type')||'').toLowerCase();return (t===''||t==='text'||t==='tel')&&vis(el);});for(var i=0;i<inputs.length;i++){var el=inputs[i];try{el.focus();el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));el.value=txt;el.dispatchEvent(new Event('input',{bubbles:true}));return true;}catch(e){}}return false;})(" + JsonConvert.SerializeObject(text) + ")";
+                        var expr = "(function(txt){"+
+                                      "function vis(el){var s=getComputedStyle(el);if(s.display==='none'||s.visibility==='hidden')return false;var r=el.getBoundingClientRect();return r.width>0&&r.height>0;}"+
+                                      "var inputs=Array.from(document.querySelectorAll('input')).filter(function(el){var t=(el.getAttribute('type')||'').toLowerCase();return (t===''||t==='text'||t==='tel')&&vis(el);});"+
+                                      "for(var i=0;i<inputs.length;i++){var el=inputs[i];try{"+
+                                      "el.focus();"+
+                                      "el.value='';"+
+                                      "el.dispatchEvent(new Event('input',{bubbles:true}));"+
+                                      "el.value=txt;"+
+                                      "el.dispatchEvent(new Event('input',{bubbles:true}));"+
+                                      "el.dispatchEvent(new Event('change',{bubbles:true}));"+
+                                      "return true;"+
+                                      "}catch(e){}}"+
+                                      "return false;"+
+                                      "})(" + JsonConvert.SerializeObject(text) + ")";
 			var resp = await SendAsync("Runtime.evaluate", new JObject
 			{
 				["expression"] = expr,
