@@ -1152,6 +1152,27 @@ namespace MaxTelegramBot
                     };
                     Process.Start(psi);
                     Console.WriteLine($"[WA] Открыл Chrome для {phone} с User-Agent: {userAgent} в папке: {Path.GetFileName(userDir)}");
+
+                    await Task.Delay(10000); // ждём 10 секунд для прогрузки страницы
+
+                    try
+                    {
+                        await using var cdp = await MaxWebAutomation.ConnectAsync(userDir, "web.whatsapp.com");
+                        const string linkDeviceSelector = "a[href*='device']";
+                        if (await cdp.WaitForSelectorAsync(linkDeviceSelector, 5000))
+                        {
+                            await cdp.ClickSelectorAsync(linkDeviceSelector);
+                            Console.WriteLine("[WA] Нажал на кнопку 'Связать устройство'");
+                        }
+                        else
+                        {
+                            Console.WriteLine("[WA] Кнопка 'Связать устройство' не найдена");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[WA] Не удалось нажать на 'Связать устройство': {ex.Message}");
+                    }
                 }
                 else
                 {
