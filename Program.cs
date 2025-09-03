@@ -1178,10 +1178,6 @@ namespace MaxTelegramBot
                                 Console.WriteLine("[WA] Поле ввода номера не найдено");
                             }
                         }
-                        else
-                        {
-                            Console.WriteLine("[WA] Кнопка 'Войти по номеру телефона' не найдена");
-                        }
                     }
                     catch (Exception ex)
                     {
