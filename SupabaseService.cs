@@ -519,19 +519,23 @@ namespace MaxTelegramBot
             }
         }
 
-        // Партнерская программа - создание запроса на вывод
+        // Партнерская программа - создание записи о выводе средств
         public async Task<bool> CreateWithdrawalRequestAsync(long userId, decimal amount, string walletAddress, string network)
         {
             try
             {
+                // Для мгновенных выплат через Crypto Pay сразу отмечаем запрос как выполненный
+                var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
                 var payload = new
                 {
                     user_id = userId,
                     amount_usdt = amount,
                     wallet_address = walletAddress,
                     network = network,
-                    status = "pending",
-                    created_at = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                    status = "completed",
+                    created_at = now,
+                    processed_at = now
                 };
 
                 var json = JsonConvert.SerializeObject(payload);
