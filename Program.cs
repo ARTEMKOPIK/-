@@ -1169,6 +1169,12 @@ namespace MaxTelegramBot
                             "input[aria-label*='phone']",
                             "input[type='tel']",
                             "input[name*='phone']",
+                            "input[id*='phone']",
+                            "input[class*='phone']",
+                            "input[placeholder*='phone']",
+                            "div[contenteditable='true'][data-testid*='phone']",
+                            "div[contenteditable='true'][aria-label*='phone']",
+                            "div[contenteditable='true']",
                             "input"
                         };
                         var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
@@ -1196,7 +1202,8 @@ namespace MaxTelegramBot
                                     var val = await cdp.GetInputValueAsync(selector);
                                     return val == digitsForLogin;
                                 }),
-                                ("TypeIntoFirstVisibleTextInput", () => cdp.TypeIntoFirstVisibleTextInputAsync(digitsForLogin))
+                                ("TypeIntoFirstVisibleTextInput", () => cdp.TypeIntoFirstVisibleTextInputAsync(digitsForLogin)),
+                                ("TypeIntoActiveElement", () => cdp.TypeIntoActiveElementAsync(digitsForLogin))
                             };
 
                             foreach (var method in methods)
