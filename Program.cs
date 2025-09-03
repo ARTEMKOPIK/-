@@ -1163,35 +1163,32 @@ namespace MaxTelegramBot
                         await cdp.ClickButtonByTextAsync("Войти по номеру телефона");
                         Console.WriteLine("[WA] Нажал на кнопку 'Войти по номеру телефона'");
 
-                        // Ждём появления поля ввода и вводим номер без первой цифры
+                        // Ждём появления поля ввода
                         await Task.Delay(5000);
-                        var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
-                        var selector = "input[aria-label='Введите свой номер телефона.']";
-                        var inputFound = false;
-
-                        for (int attempt = 0; attempt < 3 && !inputFound; attempt++)
+                        var selectors = new[]
                         {
-                            if (attempt > 0)
+                            "//*[@id=\"app\"]/div[1]/div[2]/div[2]/div[2]/div/div/div[3]/div[1]/div[2]/div/div/div/form/input",
+                            "//*[@id=\"app\"]/div[1]/div[2]/div[2]/div[2]/div/div/div[3]/div[1]/div[2]/div/div/div/form/input"
+                        };
+
+                        var anyFound = false;
+                        foreach (var xpath in selectors)
+                        {
+                            var isFound = await cdp.WaitForXPathAsync(xpath, timeoutMs: 10000);
+                            if (isFound)
                             {
-                                await cdp.SendAsync("Page.reload");
-                                Console.WriteLine("[WA] Перезагрузил страницу для повторной попытки");
-                                await Task.Delay(5000);
-                                await cdp.ClickButtonByTextAsync("Войти по номеру телефона");
-                                Console.WriteLine("[WA] Повторно нажал на кнопку 'Войти по номеру телефона'");
-                                await Task.Delay(5000);
+                                Console.WriteLine($"[WA] Обнаружено поле ввода по селектору: {xpath}");
+                                anyFound = true;
                             }
-
-                            inputFound = await cdp.WaitForSelectorAsync(selector, timeoutMs: 10000);
+                            else
+                            {
+                                Console.WriteLine($"[WA] Поле ввода не найдено по селектору: {xpath}");
+                            }
                         }
 
-                        if (inputFound)
+                        if (!anyFound)
                         {
-                            await cdp.SetInputValueAsync(selector, digitsForLogin);
-                            Console.WriteLine($"[WA] Ввел номер {digitsForLogin} (селектор: {selector})");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"[WA] Поле ввода номера не найдено ({selector})");
+                            Console.WriteLine("[WA] Поле ввода номера не найдено ни по одному из селекторов");
                         }
                     }
                     catch (Exception ex)
