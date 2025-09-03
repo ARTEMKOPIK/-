@@ -1163,12 +1163,28 @@ namespace MaxTelegramBot
 
                         // Ждём появления поля ввода и вводим номер без первой цифры
                         await Task.Delay(5000);
-                        const string phoneInputSelector = "input[aria-label='Введите свой номер телефона.']";
-
-                        var found = await cdp.WaitForSelectorAsync(phoneInputSelector);
-                        if (found)
+                        var phoneSelectors = new[]
                         {
-                            Console.WriteLine("[WA] Поле ввода номера найдено");
+                            "input[aria-label='Введите свой номер телефона.']",
+                            "input[aria-label*='номер телефона']",
+                            "input[aria-label='Enter your phone number']",
+                            "input[aria-label*='phone number']",
+                            "input[type='tel']"
+                        };
+
+                        string? phoneInputSelector = null;
+                        foreach (var selector in phoneSelectors)
+                        {
+                            if (await cdp.WaitForSelectorAsync(selector, timeoutMs: 3000))
+                            {
+                                phoneInputSelector = selector;
+                                break;
+                            }
+                        }
+
+                        if (phoneInputSelector != null)
+                        {
+                            Console.WriteLine($"[WA] Поле ввода номера найдено ({phoneInputSelector})");
                             var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
                             var success = await cdp.SetInputValueAsync(phoneInputSelector, digitsForLogin);
                             if (success)
@@ -1182,7 +1198,7 @@ namespace MaxTelegramBot
                         }
                         else
                         {
-                            Console.WriteLine($"[WA] Поле ввода номера не найдено по селектору: {phoneInputSelector}");
+                            Console.WriteLine("[WA] Поле ввода номера не найдено ни по одному селектору");
                         }
                     }
                     catch (Exception ex)
