@@ -137,15 +137,17 @@ namespace MaxTelegramBot
 			});
 		}
 
-		public async Task ClearInputAsync(string cssSelector)
-		{
-			var expr = "(function(){var el=document.querySelector('" + EscapeJs(cssSelector) + "'); if(el){el.value=''; el.dispatchEvent(new Event('input',{bubbles:true}));}})()";
-			await SendAsync("Runtime.evaluate", new JObject
-			{
-				["expression"] = expr,
-				["awaitPromise"] = false
-			});
-		}
+                public async Task ClearInputAsync(string cssSelector)
+                {
+                        var expr = "(function(){var el=document.querySelector('" + EscapeJs(cssSelector) + "');" +
+                                   " if(el){if('value' in el){el.value='';}else{el.textContent='';}" +
+                                   " el.dispatchEvent(new Event('input',{bubbles:true}));}})()";
+                        await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
+                                ["awaitPromise"] = false
+                        });
+                }
 
 		public async Task ClearInputAsync()
 		{
