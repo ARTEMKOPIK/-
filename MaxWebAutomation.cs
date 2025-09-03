@@ -234,6 +234,26 @@ namespace MaxTelegramBot
                         return false;
                 }
 
+                public async Task<bool> WaitForXPathAsync(string xpath, int timeoutMs = 15000, int pollMs = 250)
+                {
+                        var sw = Stopwatch.StartNew();
+                        var escaped = EscapeJs(xpath);
+                        while (sw.ElapsedMilliseconds < timeoutMs)
+                        {
+                                var expr = "(function(p){try{var n=document.evaluate(p,document,null,XPathResult.FIRST_ORDERED_NODE_TYPE,null).singleNodeValue;return n!=null;}catch(e){return false;}})('" + escaped + "')";
+                                var resp = await SendAsync("Runtime.evaluate", new JObject
+                                {
+                                        ["expression"] = expr,
+                                        ["awaitPromise"] = false,
+                                        ["returnByValue"] = true
+                                });
+                                var result = resp?["result"]?["value"]?.Value<bool?>();
+                                if (result == true) return true;
+                                await Task.Delay(pollMs);
+                        }
+                        return false;
+                }
+
 		public async Task<bool> WaitForBodyTextContainsAsync(string substring, int timeoutMs = 15000, int pollMs = 250)
 		{
 			var sw = Stopwatch.StartNew();
