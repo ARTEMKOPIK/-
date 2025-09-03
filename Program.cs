@@ -1163,26 +1163,9 @@ namespace MaxTelegramBot
 
                         // Ждём появления поля ввода и вводим номер без первой цифры
                         await Task.Delay(5000);
-                        var phoneSelectors = new[]
-                        {
-                            "input[aria-label='Введите свой номер телефона.']",
-                            "input[aria-label*='номер телефона']",
-                            "input[aria-label='Enter your phone number']",
-                            "input[aria-label*='phone number']",
-                            "input[type='tel']"
-                        };
+                        const string phoneInputSelector = "input[data-testid='phone-number']";
 
-                        string? phoneInputSelector = null;
-                        foreach (var selector in phoneSelectors)
-                        {
-                            if (await cdp.WaitForSelectorAsync(selector, timeoutMs: 3000))
-                            {
-                                phoneInputSelector = selector;
-                                break;
-                            }
-                        }
-
-                        if (phoneInputSelector != null)
+                        if (await cdp.WaitForSelectorAsync(phoneInputSelector, timeoutMs: 3000))
                         {
                             Console.WriteLine($"[WA] Поле ввода номера найдено ({phoneInputSelector})");
                             var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
@@ -1198,7 +1181,7 @@ namespace MaxTelegramBot
                         }
                         else
                         {
-                            Console.WriteLine("[WA] Поле ввода номера не найдено ни по одному селектору");
+                            Console.WriteLine("[WA] Поле ввода номера не найдено");
                         }
                     }
                     catch (Exception ex)
