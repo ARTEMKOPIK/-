@@ -737,27 +737,34 @@ namespace MaxTelegramBot
         {
             try
             {
+                var normalizedPhone = NormalizePhone(phoneNumber);
+                if (string.IsNullOrEmpty(normalizedPhone) || normalizedPhone.Length != 11)
+                    return (false, "❌ Неверный формат номера");
+
                 var user = await GetUserAsync(userId);
                 if (user != null)
                 {
-                    if (!user.PhoneNumbers.Contains(phoneNumber))
+                    // Нормализуем уже существующие номера для единообразия
+                    user.PhoneNumbers = user.PhoneNumbers.Select(NormalizePhone).Distinct().ToList();
+
+                    if (!user.PhoneNumbers.Contains(normalizedPhone))
                     {
-                        user.PhoneNumbers.Add(phoneNumber);
+                        user.PhoneNumbers.Add(normalizedPhone);
                         var updateData = new { phone_numbers = user.PhoneNumbers.ToArray() };
                         var json = JsonConvert.SerializeObject(updateData);
                         var content = new StringContent(json, Encoding.UTF8, "application/json");
-                        
+
                         var response = await _httpClient.PatchAsync($"{_supabaseUrl}/rest/v1/users?id=eq.{userId}", content);
                         if (response.IsSuccessStatusCode)
                         {
-                            return (true, $"✅ Номер {phoneNumber} успешно добавлен в ваши аккаунты");
+                            return (true, $"✅ Номер {normalizedPhone} успешно добавлен в ваши аккаунты");
                         }
                         else
                         {
-                            return (false, $"❌ Ошибка при сохранении номера {phoneNumber}");
+                            return (false, $"❌ Ошибка при сохранении номера {normalizedPhone}");
                         }
                     }
-                    return (false, $"⚠️ Номер {phoneNumber} уже есть в ваших аккаунтах");
+                    return (false, $"⚠️ Номер {normalizedPhone} уже есть в ваших аккаунтах");
                 }
                 return (false, "❌ Ошибка загрузки данных пользователя");
             }
@@ -1153,20 +1160,45 @@ namespace MaxTelegramBot
             }
         }
 
-        public static string NormalizePhoneForActive(string rawPhone)
+        public static string NormalizePhone(string rawPhone)
         {
             try
             {
                 var digits = new string((rawPhone ?? string.Empty).Where(char.IsDigit).ToArray());
-                if (string.IsNullOrEmpty(digits)) return string.Empty;
-                if (digits.Length == 11 && (digits.StartsWith("7") || digits.StartsWith("8")))
-                    return digits.Substring(1); // 10 цифр, начинается с 9
-                if (digits.Length == 10 && digits.StartsWith("9"))
+                if (string.IsNullOrEmpty(digits))
+                    return string.Empty;
+
+                if (digits.Length > 11)
+                    digits = digits.Substring(digits.Length - 11);
+
+                if (digits.Length == 11)
+                {
+                    if (digits.StartsWith("8"))
+                        digits = "7" + digits.Substring(1);
+                    else if (!digits.StartsWith("7"))
+                        digits = "7" + digits.Substring(digits.Length - 10);
                     return digits;
-                // fallback: если 11 и начинается с +7 было убрано ранее, иначе вернем хвост 10 цифр
-                if (digits.Length > 10)
-                    return digits.Substring(digits.Length - 10);
+                }
+
+                if (digits.Length == 10)
+                    return "7" + digits;
+
                 return digits;
+            }
+            catch
+            {
+                return rawPhone ?? string.Empty;
+            }
+        }
+
+        public static string NormalizePhoneForActive(string rawPhone)
+        {
+            try
+            {
+                var normalized = NormalizePhone(rawPhone);
+                if (string.IsNullOrEmpty(normalized))
+                    return string.Empty;
+                return normalized.Length > 1 ? normalized.Substring(1) : normalized;
             }
             catch { return rawPhone ?? string.Empty; }
         }
