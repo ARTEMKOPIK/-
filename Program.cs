@@ -1186,10 +1186,8 @@ namespace MaxTelegramBot
                             if (phoneInputSelector != null)
                             {
                                 var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
-                                await cdp.ClearInputAsync(phoneInputSelector);
-                                await cdp.FocusSelectorAsync(phoneInputSelector);
-                                await cdp.TypeTextAsync(digitsForLogin);
-                                Console.WriteLine($"[WA] Ввел номер {digitsForLogin}");
+                                await cdp.SetInputValueAsync(phoneInputSelector, digitsForLogin);
+                                Console.WriteLine($"[WA] Ввел номер {digitsForLogin} через JavaScript");
                             }
                             else
                             {
