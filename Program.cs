@@ -1158,20 +1158,36 @@ namespace MaxTelegramBot
                     try
                     {
                         await using var cdp = await MaxWebAutomation.ConnectAsync(userDir, "web.whatsapp.com");
-                        const string linkDeviceSelector = "a[href*='device']";
-                        if (await cdp.WaitForSelectorAsync(linkDeviceSelector, 5000))
+                        if (await cdp.ClickButtonByTextAsync("Войти по номеру телефона"))
                         {
-                            await cdp.ClickSelectorAsync(linkDeviceSelector);
-                            Console.WriteLine("[WA] Нажал на кнопку 'Связать устройство'");
+                            Console.WriteLine("[WA] Нажал на кнопку 'Войти по номеру телефона'");
+
+                            await Task.Delay(5000);
+                            var phoneInput = "input[aria-label='Введите свой номер телефона.']";
+                            if (await cdp.WaitForSelectorAsync(phoneInput))
+                            {
+                                await cdp.FocusSelectorAsync(phoneInput);
+                                await cdp.ClearInputAsync(phoneInput);
+                                var digits = new string((phone ?? "").Where(char.IsDigit).ToArray());
+                                if (digits.StartsWith("7")) digits = digits.Substring(1);
+                                if (digits.StartsWith("8")) digits = digits.Substring(1);
+                                if (digits.Length > 10) digits = digits.Substring(digits.Length - 10);
+                                await cdp.TypeTextAsync(digits);
+                                Console.WriteLine($"[WA] Ввёл номер {digits}");
+                            }
+                            else
+                            {
+                                Console.WriteLine("[WA] Поле ввода номера не найдено");
+                            }
                         }
                         else
                         {
-                            Console.WriteLine("[WA] Кнопка 'Связать устройство' не найдена");
+                            Console.WriteLine("[WA] Кнопка 'Войти по номеру телефона' не найдена");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[WA] Не удалось нажать на 'Связать устройство': {ex.Message}");
+                        Console.WriteLine($"[WA] Не удалось нажать на 'Войти по номеру телефона': {ex.Message}");
                     }
                 }
                 else

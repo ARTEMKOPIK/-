@@ -221,7 +221,7 @@ namespace MaxTelegramBot
 
 		public async Task<bool> ClickButtonByTextAsync(string containsText)
 		{
-			var expr = "(function(t){t=t.toLowerCase();var btns=Array.from(document.querySelectorAll('button'));for(var i=0;i<btns.length;i++){var el=btns[i];var txt=(el.textContent||'').trim().toLowerCase();if(txt.indexOf(t)>=0){el.click();return true;}}return false;})(" + JsonConvert.SerializeObject(containsText) + ")";
+			var expr = "(function(t){t=t.toLowerCase();var btns=Array.from(document.querySelectorAll(\"button,[role='button']\"));for(var i=0;i<btns.length;i++){var el=btns[i];var txt=(el.textContent||'').trim().toLowerCase();if(txt.indexOf(t)>=0){el.click();return true;}}return false;})(" + JsonConvert.SerializeObject(containsText) + ")";
 			var resp = await SendAsync("Runtime.evaluate", new JObject
 			{
 				["expression"] = expr,
