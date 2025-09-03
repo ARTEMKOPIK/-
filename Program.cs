@@ -1169,7 +1169,10 @@ namespace MaxTelegramBot
                             var possibleSelectors = new[]
                             {
                                 "input[aria-label='Введите свой номер телефона.']",
-                                "input[type='tel']"
+                                "input[type='tel']",
+                                "div[contenteditable='true'][data-testid='phone-number-input']",
+                                "div[contenteditable='true'][data-tab='6']",
+                                "div[role='textbox'][title*='номер']"
                             };
                             foreach (var selector in possibleSelectors)
                             {
