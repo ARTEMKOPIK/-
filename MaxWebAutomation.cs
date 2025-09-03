@@ -163,6 +163,20 @@ namespace MaxTelegramBot
                         return resp?["result"]?["value"]?.Value<bool?>() == true;
                 }
 
+                public async Task<string?> GetInputValueAsync(string cssSelector)
+                {
+                        var expr = "(function(){var el=document.querySelector('" + EscapeJs(cssSelector) + "');" +
+                                   " if(!el) return null;" +
+                                   " return ('value' in el) ? el.value : (el.textContent||null);})()";
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
+                                ["awaitPromise"] = true,
+                                ["returnByValue"] = true
+                        });
+                        return resp?["result"]?["value"]?.Value<string>();
+                }
+
                 public async Task ClearInputAsync()
                 {
                         await SendAsync("Input.clear", new JObject());
