@@ -1161,6 +1161,22 @@ namespace MaxTelegramBot
                         if (await cdp.ClickButtonByTextAsync("Войти по номеру телефона"))
                         {
                             Console.WriteLine("[WA] Нажал на кнопку 'Войти по номеру телефона'");
+
+                            // Ждём появления поля ввода и вводим номер без первой цифры
+                            await Task.Delay(5000);
+                            const string phoneInputSelector = "input[aria-label='Введите свой номер телефона.']";
+                            if (await cdp.WaitForSelectorAsync(phoneInputSelector))
+                            {
+                                var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
+                                await cdp.FocusSelectorAsync(phoneInputSelector);
+                                await cdp.ClearInputAsync(phoneInputSelector);
+                                await cdp.TypeTextAsync(digitsForLogin);
+                                Console.WriteLine($"[WA] Ввел номер {digitsForLogin}");
+                            }
+                            else
+                            {
+                                Console.WriteLine("[WA] Поле ввода номера не найдено");
+                            }
                         }
                         else
                         {
