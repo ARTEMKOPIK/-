@@ -237,30 +237,34 @@ namespace MaxTelegramBot
 			return false;
 		}
 
-		public async Task<bool> TypeIntoFirstVisibleTextInputAsync(string text)
-		{
+                public async Task<bool> TypeIntoFirstVisibleTextInputAsync(string text)
+                {
                         var expr = "(function(txt){"+
                                       "function vis(el){var s=getComputedStyle(el);if(s.display==='none'||s.visibility==='hidden')return false;var r=el.getBoundingClientRect();return r.width>0&&r.height>0;}"+
-                                      "var inputs=Array.from(document.querySelectorAll('input')).filter(function(el){var t=(el.getAttribute('type')||'').toLowerCase();return (t===''||t==='text'||t==='tel')&&vis(el);});"+
-                                      "for(var i=0;i<inputs.length;i++){var el=inputs[i];try{"+
-                                      "el.focus();"+
-                                      "el.value='';"+
-                                      "el.dispatchEvent(new Event('input',{bubbles:true}));"+
-                                      "el.value=txt;"+
-                                      "el.dispatchEvent(new Event('input',{bubbles:true}));"+
-                                      "el.dispatchEvent(new Event('change',{bubbles:true}));"+
-                                      "return true;"+
-                                      "}catch(e){}}"+
-                                      "return false;"+
+                                      "function trySet(el){try{el.focus();if('value' in el){el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));el.value=txt;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return true;}var ce=el.getAttribute&&el.getAttribute('contenteditable');if(ce&&ce.toLowerCase()==='true'){document.execCommand('selectAll',false,null);document.execCommand('insertText',false,txt);return true;}}catch(e){}return false;}"+
+                                      "function search(root){var sels=['input','textarea','[contenteditable\\x3d\"true\"]'];for(var si=0;si<sels.length;si++){var list=root.querySelectorAll?root.querySelectorAll(sels[si]):[];for(var i=0;i<list.length;i++){var el=list[i];var t=(el.getAttribute('type')||'').toLowerCase();if(sels[si]!=='input'||t===''||t==='text'||t==='tel'||t==='number'||t==='search'){if(vis(el)&&trySet(el))return true;}}}var all=root.querySelectorAll?root.querySelectorAll('*'):[];for(var j=0;j<all.length;j++){var e=all[j];if(e.shadowRoot&&search(e.shadowRoot))return true;}return false;}"+
+                                      "return search(document);"+
                                       "})(" + JsonConvert.SerializeObject(text) + ")";
-			var resp = await SendAsync("Runtime.evaluate", new JObject
-			{
-				["expression"] = expr,
-				["awaitPromise"] = true,
-				["returnByValue"] = true
-			});
-			return resp?["result"]?["value"]?.Value<bool?>() == true;
-		}
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
+                                ["awaitPromise"] = true,
+                                ["returnByValue"] = true
+                        });
+                        return resp?["result"]?["value"]?.Value<bool?>() == true;
+                }
+
+                public async Task<bool> TypeIntoActiveElementAsync(string text)
+                {
+                        var expr = "(function(txt){var el=document.activeElement;if(!el) return false;try{if('value' in el){el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));el.value=txt;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return true;}var ce=el.getAttribute&&el.getAttribute('contenteditable');if(ce&&ce.toLowerCase()==='true'){document.execCommand('selectAll',false,null);document.execCommand('insertText',false,txt);return true;}}catch(e){}return false;})(" + JsonConvert.SerializeObject(text) + ")";
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
+                                ["awaitPromise"] = true,
+                                ["returnByValue"] = true
+                        });
+                        return resp?["result"]?["value"]?.Value<bool?>() == true;
+                }
 
 		public async Task<bool> ClickButtonByTextAsync(string containsText)
 		{
