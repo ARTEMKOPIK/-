@@ -1158,20 +1158,18 @@ namespace MaxTelegramBot
                     try
                     {
                         await using var cdp = await MaxWebAutomation.ConnectAsync(userDir, "web.whatsapp.com");
-                        const string linkDeviceSelector = "a[href*='device']";
-                        if (await cdp.WaitForSelectorAsync(linkDeviceSelector, 5000))
+                        if (await cdp.ClickButtonByTextAsync("Войти по номеру телефона"))
                         {
-                            await cdp.ClickSelectorAsync(linkDeviceSelector);
-                            Console.WriteLine("[WA] Нажал на кнопку 'Связать устройство'");
+                            Console.WriteLine("[WA] Нажал на кнопку 'Войти по номеру телефона'");
                         }
                         else
                         {
-                            Console.WriteLine("[WA] Кнопка 'Связать устройство' не найдена");
+                            Console.WriteLine("[WA] Кнопка 'Войти по номеру телефона' не найдена");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[WA] Не удалось нажать на 'Связать устройство': {ex.Message}");
+                        Console.WriteLine($"[WA] Не удалось нажать на 'Войти по номеру телефона': {ex.Message}");
                     }
                 }
                 else
