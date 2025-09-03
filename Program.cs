@@ -1165,8 +1165,7 @@ namespace MaxTelegramBot
 
                             // Ждём появления поля ввода и вводим номер без первой цифры
                             await Task.Delay(5000);
-                            const string phoneInputSelector =
-                                "div.x1n2onr6.xqv4dci.x1aazizy.xd3ty66.xcicffo.x1vktgvc.x1qx5ct2.xe7vic5.x178xt8z.x1lun4ml.xso031l.xpilrb4.x13fuv20.x18b5jzi.x1q0q8m5.x1t7ytsu.x1rl75mt.x19t5iym.xz7t8uv.x13xmedi.xy2seqb.x12sz9sg.xwm8nch.xxkxxek > div.x1n2onr6 > form > input.selectable-text.x1n2onr6.xy9n6vp.x1n327nk.xh8yej3.x972fbf.x10w94by.x1qhh985.x14e42zd.xjbqb8w.x1uvtmcs.x1jchvi3.xss6m8b.xexx8yu.xyri2b.x18d9i69.x1c1uobl";
+                            const string phoneInputSelector = "input[aria-label='Введите свой номер телефона.']";
 
                             var found = await cdp.WaitForSelectorAsync(phoneInputSelector);
                             if (found)
