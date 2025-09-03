@@ -1164,12 +1164,28 @@ namespace MaxTelegramBot
 
                             // Ждём появления поля ввода и вводим номер без первой цифры
                             await Task.Delay(5000);
-                            const string phoneInputSelector = "input[type='tel']";
-                            if (await cdp.WaitForSelectorAsync(phoneInputSelector))
+                            // Новый интерфейс WhatsApp может использовать другое поле ввода
+                            string? phoneInputSelector = null;
+                            var possibleSelectors = new[]
+                            {
+                                "input[aria-label='Введите свой номер телефона.']",
+                                "input[type='tel']"
+                            };
+                            foreach (var selector in possibleSelectors)
+                            {
+                                if (await cdp.WaitForSelectorAsync(selector))
+                                {
+                                    phoneInputSelector = selector;
+                                    break;
+                                }
+                            }
+
+                            if (phoneInputSelector != null)
                             {
                                 var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
                                 await cdp.ClearInputAsync(phoneInputSelector);
-                                await cdp.TypeIntoFirstVisibleTextInputAsync(digitsForLogin);
+                                await cdp.FocusSelectorAsync(phoneInputSelector);
+                                await cdp.TypeTextAsync(digitsForLogin);
                                 Console.WriteLine($"[WA] Ввел номер {digitsForLogin}");
                             }
                             else
