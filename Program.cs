@@ -929,6 +929,7 @@ namespace MaxTelegramBot
                 if (!filled)
                 {
                     // Фолбэк: клик по контейнеру и печать текста
+                    await cdp.WaitForSelectorAsync("div.code");
                     await cdp.ClickSelectorAsync("div.code");
                     await Task.Delay(100);
                     await cdp.TypeTextAsync(digitsOnly);
@@ -985,6 +986,7 @@ namespace MaxTelegramBot
                                 // Очищаем поле ввода кода
                                 try
                                 {
+                                    await cdp.WaitForSelectorAsync("div.code");
                                     await cdp.ClickSelectorAsync("div.code");
                                     await Task.Delay(100);
                                     await cdp.ClearInputAsync();

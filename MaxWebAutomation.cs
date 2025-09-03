@@ -124,14 +124,27 @@ namespace MaxTelegramBot
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[MAX] ⚠️ Ошибка применения оптимизаций: {ex.Message}");
-			}
-		}
+                        }
+                }
 
-		public async Task FocusSelectorAsync(string cssSelector)
-		{
-			var expr = $"document.querySelector('{EscapeJs(cssSelector)}')?.focus()";
-			await SendAsync("Runtime.evaluate", new JObject
-			{
+                private const string DeepQueryScript = @"function __maxFind(root, sel){try{var el=root.querySelector(sel);if(el) return el;}catch(e){}var nodes=root.querySelectorAll('*');for(var i=0;i<nodes.length;i++){var node=nodes[i];try{var cd=node.contentDocument;if(cd){var res=__maxFind(cd, sel);if(res) return res;}}catch(e){}var sr=node.shadowRoot;if(sr){var res2=__maxFind(sr, sel);if(res2) return res2;}}return null;}";
+
+                private static string BuildDeepQueryExpression(string selector, string action, string? value = null)
+                {
+                        var selEsc = EscapeJs(selector);
+                        if (value != null)
+                        {
+                                var valEsc = EscapeJs(value);
+                                return "(function(sel,val){" + DeepQueryScript + " var el=__maxFind(document, sel); " + action + "})('" + selEsc + "','" + valEsc + "')";
+                        }
+                        return "(function(sel){" + DeepQueryScript + " var el=__maxFind(document, sel); " + action + "})('" + selEsc + "')";
+                }
+
+                public async Task FocusSelectorAsync(string cssSelector)
+                {
+                        var expr = $"document.querySelector('{EscapeJs(cssSelector)}')?.focus()";
+                        await SendAsync("Runtime.evaluate", new JObject
+                        {
 				["expression"] = expr,
 				["awaitPromise"] = false
 			});
@@ -151,9 +164,9 @@ namespace MaxTelegramBot
 
                 public async Task<bool> SetInputValueAsync(string cssSelector, string value)
                 {
-                        var expr = "(function(){var el=document.querySelector('" + EscapeJs(cssSelector) + "');" +
-                                   " if(el){if('value' in el){el.value='" + EscapeJs(value) + "';}else{el.textContent='" + EscapeJs(value) + "';}" +
-                                   " el.dispatchEvent(new Event('input',{bubbles:true})); return true;} return false;})()";
+                        var expr = BuildDeepQueryExpression(cssSelector,
+                                "if(el){if('value' in el){el.value=val;}else{el.textContent=val;} el.dispatchEvent(new Event('input',{bubbles:true})); return true;} return false;",
+                                value);
                         var resp = await SendAsync("Runtime.evaluate", new JObject
                         {
                                 ["expression"] = expr,
@@ -190,34 +203,36 @@ namespace MaxTelegramBot
 			});
 		}
 
-		public async Task ClickSelectorAsync(string cssSelector)
-		{
-			var expr = "(function(){var el=document.querySelector('" + EscapeJs(cssSelector) + "'); if(el){el.click(); return true;} return false;})()";
-			await SendAsync("Runtime.evaluate", new JObject
-			{
-				["expression"] = expr,
-				["awaitPromise"] = true,
-				["returnByValue"] = true
-			});
-		}
+                public async Task ClickSelectorAsync(string cssSelector)
+                {
+                        var expr = BuildDeepQueryExpression(cssSelector,
+                                "if(el){el.click(); return true;} return false;");
+                        await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
+                                ["awaitPromise"] = true,
+                                ["returnByValue"] = true
+                        });
+                }
 
-		public async Task<bool> WaitForSelectorAsync(string cssSelector, int timeoutMs = 15000, int pollMs = 250)
-		{
-			var sw = Stopwatch.StartNew();
-			while (sw.ElapsedMilliseconds < timeoutMs)
-			{
-				var resp = await SendAsync("Runtime.evaluate", new JObject
-				{
-					["expression"] = "document.querySelector('" + EscapeJs(cssSelector) + "')!=null",
-					["awaitPromise"] = false,
-					["returnByValue"] = true
-				});
-				var result = resp?["result"]?["value"]?.Value<bool?>();
-				if (result == true) return true;
-				await Task.Delay(pollMs);
-			}
-			return false;
-		}
+                public async Task<bool> WaitForSelectorAsync(string cssSelector, int timeoutMs = 15000, int pollMs = 250)
+                {
+                        var sw = Stopwatch.StartNew();
+                        while (sw.ElapsedMilliseconds < timeoutMs)
+                        {
+                                var expr = BuildDeepQueryExpression(cssSelector, "return el!=null;");
+                                var resp = await SendAsync("Runtime.evaluate", new JObject
+                                {
+                                        ["expression"] = expr,
+                                        ["awaitPromise"] = false,
+                                        ["returnByValue"] = true
+                                });
+                                var result = resp?["result"]?["value"]?.Value<bool?>();
+                                if (result == true) return true;
+                                await Task.Delay(pollMs);
+                        }
+                        return false;
+                }
 
 		public async Task<bool> WaitForBodyTextContainsAsync(string substring, int timeoutMs = 15000, int pollMs = 250)
 		{
