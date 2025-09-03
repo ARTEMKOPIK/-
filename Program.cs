@@ -1163,83 +1163,17 @@ namespace MaxTelegramBot
 
                         // Ждём появления поля ввода и вводим номер без первой цифры
                         await Task.Delay(5000);
-                        var selectors = new[]
-                        {
-                            "input[data-testid='phone-number']",
-                            "input[aria-label*='phone']",
-                            "input[type='tel']",
-                            "input[name*='phone']",
-                            "input[id*='phone']",
-                            "input[class*='phone']",
-                            "input[placeholder*='phone']",
-                            "div[contenteditable='true'][data-testid*='phone']",
-                            "div[contenteditable='true'][aria-label*='phone']",
-                            "div[contenteditable='true']",
-                            "input"
-                        };
                         var digitsForLogin = safePhone.StartsWith("7") ? safePhone.Substring(1) : safePhone;
-                        string? usedSelector = null;
-                        string? usedMethod = null;
+                        var selector = "input.selectable-text.x1n2onr6.xy9n6vp.x1n327nk.xh8yej3.x972fbf.x10w94by.x1qhh985.x14e42zd.xjbqb8w.x1uvtmcs.x1jchvi3.xss6m8b.xexx8yu.xyri2b.x18d9i69.x1c1uobl";
 
-                        foreach (var selector in selectors)
+                        if (await cdp.WaitForSelectorAsync(selector, timeoutMs: 5000))
                         {
-                            if (!await cdp.WaitForSelectorAsync(selector, timeoutMs: 2000))
-                            {
-                                Console.WriteLine($"[WA] Поле ввода номера не найдено ({selector})");
-                                continue;
-                            }
-
-                            Console.WriteLine($"[WA] Поле ввода номера найдено ({selector})");
-
-                            var methods = new (string Name, Func<Task<bool>> Action)[]
-                            {
-                                ("SetInputValueAsync", () => cdp.SetInputValueAsync(selector, digitsForLogin)),
-                                ("FocusAndTypeText", async () =>
-                                {
-                                    await cdp.FocusSelectorAsync(selector);
-                                    await cdp.ClearInputAsync(selector);
-                                    await cdp.TypeTextAsync(digitsForLogin);
-                                    var val = await cdp.GetInputValueAsync(selector);
-                                    return val == digitsForLogin;
-                                }),
-                                ("TypeIntoFirstVisibleTextInput", () => cdp.TypeIntoFirstVisibleTextInputAsync(digitsForLogin)),
-                                ("TypeIntoActiveElement", () => cdp.TypeIntoActiveElementAsync(digitsForLogin))
-                            };
-
-                            foreach (var method in methods)
-                            {
-                                try
-                                {
-                                    var ok = await method.Action();
-                                    if (ok)
-                                    {
-                                        usedSelector = selector;
-                                        usedMethod = method.Name;
-                                        Console.WriteLine($"[WA] Ввел номер {digitsForLogin} методом {method.Name} (селектор: {selector})");
-                                        break;
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine($"[WA] Метод {method.Name} не смог ввести номер через селектор {selector}");
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Console.WriteLine($"[WA] Ошибка метода {method.Name} для селектора {selector}: {ex.Message}");
-                                }
-                            }
-
-                            if (usedMethod != null)
-                                break;
-                        }
-
-                        if (usedMethod == null)
-                        {
-                            Console.WriteLine("[WA] Не удалось ввести номер ни одним способом");
+                            await cdp.SetInputValueAsync(selector, digitsForLogin);
+                            Console.WriteLine($"[WA] Ввел номер {digitsForLogin} (селектор: {selector})");
                         }
                         else
                         {
-                            Console.WriteLine($"[WA] Номер введён способом: {usedMethod} (селектор: {usedSelector})");
+                            Console.WriteLine($"[WA] Поле ввода номера не найдено ({selector})");
                         }
                     }
                     catch (Exception ex)
