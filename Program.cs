@@ -2326,6 +2326,40 @@ namespace MaxTelegramBot
                     );
                     break;
 
+                case "info":
+                    var allUsers = await _supabaseService.GetAllUsersAsync();
+                    var totalAccounts = allUsers.Sum(u => u.PhoneNumbers?.Count ?? 0);
+                    var activeWarming = _warmingCtsByPhone.Count;
+                    var load = activeWarming switch
+                    {
+                        < 10 => "Низкая",
+                        < 50 => "Средняя",
+                        _ => "Высокая"
+                    };
+
+                    var infoMessage = "ℹ️ Информация о боте\n\n" +
+                                      "Atlantis Grev — сервис для безопасного прогрева аккаунтов MAX.\n" +
+                                      "Ниже отображается текущая статистика сервера.\n\n" +
+                                      "------\n" +
+                                      "Статистика сервера\n" +
+                                      $"Всего аккаунтов: {totalAccounts}\n" +
+                                      $"Прогревается сейчас: {activeWarming}\n" +
+                                      $"Нагрузка: {load}";
+
+                    var infoKeyboard = new InlineKeyboardMarkup(new[]
+                    {
+                        new [] { InlineKeyboardButton.WithCallbackData("🏠 Главное меню", "main_menu") }
+                    });
+
+                    await botClient.EditMessageTextAsync(
+                        chatId: chatId,
+                        messageId: messageId,
+                        text: infoMessage,
+                        replyMarkup: infoKeyboard,
+                        cancellationToken: cancellationToken
+                    );
+                    break;
+
                 case "support":
                     if (_userActiveTicket.ContainsKey(callbackQuery.From.Id))
                     {
