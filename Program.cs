@@ -1165,22 +1165,53 @@ namespace MaxTelegramBot
 
                         // Ждём появления поля ввода и вводим номер
                         await Task.Delay(5000);
-                        var inputSelector = "input[aria-label=\"Введите свой номер телефона.\"]";
-                        var found = await cdp.WaitForSelectorAsync(inputSelector, timeoutMs: 10000);
-                        if (found)
+                        var selectors = new[]
                         {
-                            Console.WriteLine($"[WA] Обнаружено поле ввода по селектору: {inputSelector}");
-                            var success = await cdp.SetInputValueAsync(inputSelector, phone);
-                            if (!success)
+                            "input[aria-label*=\"номер\"]",
+                            "input[type=\"tel\"]",
+                            "input[data-testid=\"phone-number\"]",
+                            "input[placeholder*=\"phone\"]"
+                        };
+                        string? inputSelector = null;
+                        foreach (var sel in selectors)
+                        {
+                            Console.WriteLine($"[WA] Проверяем селектор: {sel}");
+                            if (await cdp.WaitForSelectorAsync(sel, timeoutMs: 2000))
                             {
+                                inputSelector = sel;
+                                Console.WriteLine($"[WA] Сработал селектор: {inputSelector}");
+                                break;
+                            }
+                        }
+                        if (inputSelector != null)
+                        {
+                            var setResult = await cdp.SetInputValueAsync(inputSelector, phone);
+                            var currentValue = await cdp.GetInputValueAsync(inputSelector);
+                            Console.WriteLine($"[WA] SetInputValueAsync: {setResult}, текущее значение: '{currentValue}'");
+                            if (currentValue != phone)
+                            {
+                                Console.WriteLine("[WA] Значение не установилось, fallback к TypeTextAsync");
                                 await cdp.FocusSelectorAsync(inputSelector);
                                 await cdp.TypeTextAsync(phone);
+                                currentValue = await cdp.GetInputValueAsync(inputSelector);
+                                if (currentValue != phone)
+                                {
+                                    Console.WriteLine("[WA] TypeTextAsync не помог, пробуем JS-оценку");
+                                    await cdp.SendAsync("Runtime.evaluate", new JObject {
+                                        ["expression"] = $"var e=document.querySelector('{inputSelector}');" +
+                                                         $"e.value='{phone}';" +
+                                                         "e.dispatchEvent(new Event('input',{bubbles:true}));"
+                                    });
+                                    currentValue = await cdp.GetInputValueAsync(inputSelector);
+                                }
                             }
-                            Console.WriteLine($"[WA] Ввёл номер {phone}");
+                            Console.WriteLine(currentValue == phone
+                                ? $"[WA] Ввёл номер {phone}"
+                                : $"[WA] Не удалось ввести номер {phone}, текущее значение: '{currentValue}'");
                         }
                         else
                         {
-                            Console.WriteLine($"[WA] Поле ввода номера не найдено по селектору: {inputSelector}");
+                            Console.WriteLine("[WA] Поле ввода номера не найдено ни одним из селекторов");
                         }
                         }
                     catch (Exception ex)
