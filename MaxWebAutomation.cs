@@ -215,6 +215,53 @@ namespace MaxTelegramBot
                         });
                 }
 
+                public async Task<bool> ClickSelectorByMouseAsync(string cssSelector)
+                {
+                        var expr = "(function(sel){var el=document.querySelector(sel);" +
+                                "if(!el) return null;" +
+                                "el.scrollIntoView({behavior:'instant',block:'center',inline:'center'});" +
+                                "var r=el.getBoundingClientRect();" +
+                                "return {x:r.left+r.width/2,y:r.top+r.height/2};})(" +
+                                JsonConvert.SerializeObject(cssSelector) + ")";
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
+                                ["awaitPromise"] = true,
+                                ["returnByValue"] = true
+                        });
+                        var val = resp?["result"]?["value"];
+                        if (val == null || val.Type != JTokenType.Object)
+                                return false;
+                        var x = val["x"]?.Value<double?>();
+                        var y = val["y"]?.Value<double?>();
+                        if (x == null || y == null)
+                                return false;
+                        await SendAsync("Input.dispatchMouseEvent", new JObject
+                        {
+                                ["type"] = "mouseMoved",
+                                ["x"] = x,
+                                ["y"] = y,
+                                ["button"] = "none"
+                        });
+                        await SendAsync("Input.dispatchMouseEvent", new JObject
+                        {
+                                ["type"] = "mousePressed",
+                                ["x"] = x,
+                                ["y"] = y,
+                                ["button"] = "left",
+                                ["clickCount"] = 1
+                        });
+                        await SendAsync("Input.dispatchMouseEvent", new JObject
+                        {
+                                ["type"] = "mouseReleased",
+                                ["x"] = x,
+                                ["y"] = y,
+                                ["button"] = "left",
+                                ["clickCount"] = 1
+                        });
+                        return true;
+                }
+
                 public async Task<bool> WaitForSelectorAsync(string cssSelector, int timeoutMs = 15000, int pollMs = 250)
                 {
                         var sw = Stopwatch.StartNew();
