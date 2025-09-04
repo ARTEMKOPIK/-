@@ -1170,9 +1170,12 @@ namespace MaxTelegramBot
                         if (found)
                         {
                             Console.WriteLine($"[WA] Обнаружено поле ввода по селектору: {inputSelector}");
-                            await cdp.FocusSelectorAsync(inputSelector);
-                            await cdp.ClearInputAsync(inputSelector);
-                            await cdp.TypeTextAsync(phone);
+                            var success = await cdp.SetInputValueAsync(inputSelector, phone);
+                            if (!success)
+                            {
+                                await cdp.FocusSelectorAsync(inputSelector);
+                                await cdp.TypeTextAsync(phone);
+                            }
                             Console.WriteLine($"[WA] Ввёл номер {phone}");
                         }
                         else
