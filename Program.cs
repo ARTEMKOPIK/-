@@ -1165,12 +1165,14 @@ namespace MaxTelegramBot
 
                         // Ждём появления поля ввода и вводим номер
                         await Task.Delay(5000);
-                        var inputSelector = "input.selectable-text.x1n2onr6.xy9n6vp.x1n327nk.xh8yej3.x972fbf.x10w94by.x1qhh985.x14e42zd.xjbqb8w.x1uvtmcs.x1jchvi3.xss6m8b.xexx8yu.xyri2b.x18d9i69.x1c1uobl";
+                        var inputSelector = "input[aria-label=\"Введите свой номер телефона.\"]";
                         var found = await cdp.WaitForSelectorAsync(inputSelector, timeoutMs: 10000);
                         if (found)
                         {
                             Console.WriteLine($"[WA] Обнаружено поле ввода по селектору: {inputSelector}");
-                            await cdp.SetInputValueAsync(inputSelector, phone);
+                            await cdp.FocusSelectorAsync(inputSelector);
+                            await cdp.ClearInputAsync(inputSelector);
+                            await cdp.TypeTextAsync(phone);
                             Console.WriteLine($"[WA] Ввёл номер {phone}");
                         }
                         else
