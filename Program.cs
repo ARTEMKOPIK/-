@@ -1164,54 +1164,34 @@ namespace MaxTelegramBot
                         Console.WriteLine("[WA] Нажал на кнопку 'Войти по номеру телефона'");
 
                         // Ждём появления поля ввода и вводим номер
-                        await Task.Delay(5000);
-                        var selectors = new[]
+                        await Task.Delay(25000);
+                        var xpaths = new[]
                         {
-                            "input[aria-label*=\"номер\"]",
-                            "input[type=\"tel\"]",
-                            "input[data-testid=\"phone-number\"]",
-                            "input[placeholder*=\"phone\"]"
+                            "//*[@id=\"app\"]/div[1]/div[2]/div[2]/div[2]/div/div/div[3]/div[1]/div[2]/div/div/div/form/input",
+                            "//*[@id=\"app\"]/div[1]/div[2]/div[2]/div[1]/div/div/div[3]/div[1]/div[2]/div/div/div/form/input"
                         };
-                        string? inputSelector = null;
-                        foreach (var sel in selectors)
+                        var inputSet = false;
+                        foreach (var xp in xpaths)
                         {
-                            Console.WriteLine($"[WA] Проверяем селектор: {sel}");
-                            if (await cdp.WaitForSelectorAsync(sel, timeoutMs: 2000))
+                            Console.WriteLine($"[WA] Проверяем xpath: {xp}");
+                            if (await cdp.WaitForXPathAsync(xp, timeoutMs: 2000))
                             {
-                                inputSelector = sel;
-                                Console.WriteLine($"[WA] Сработал селектор: {inputSelector}");
+                                var escapedXpath = xp.Replace("\\", "\\\\").Replace("'", "\\'");
+                                var escapedPhone = phone.Replace("\\", "\\\\").Replace("'", "\\'");
+                                await cdp.SendAsync("Runtime.evaluate", new JObject
+                                {
+                                    ["expression"] =
+                                        $"var e=document.evaluate('{escapedXpath}',document,null,XPathResult.FIRST_ORDERED_NODE_TYPE,null).singleNodeValue;" +
+                                        $"if(e){{e.value='{escapedPhone}';e.dispatchEvent(new Event('input',{{bubbles:true}}));}}"
+                                });
+                                Console.WriteLine($"[WA] Ввёл номер {phone}");
+                                inputSet = true;
                                 break;
                             }
                         }
-                        if (inputSelector != null)
+                        if (!inputSet)
                         {
-                            var setResult = await cdp.SetInputValueAsync(inputSelector, phone);
-                            var currentValue = await cdp.GetInputValueAsync(inputSelector);
-                            Console.WriteLine($"[WA] SetInputValueAsync: {setResult}, текущее значение: '{currentValue}'");
-                            if (currentValue != phone)
-                            {
-                                Console.WriteLine("[WA] Значение не установилось, fallback к TypeTextAsync");
-                                await cdp.FocusSelectorAsync(inputSelector);
-                                await cdp.TypeTextAsync(phone);
-                                currentValue = await cdp.GetInputValueAsync(inputSelector);
-                                if (currentValue != phone)
-                                {
-                                    Console.WriteLine("[WA] TypeTextAsync не помог, пробуем JS-оценку");
-                                    await cdp.SendAsync("Runtime.evaluate", new JObject {
-                                        ["expression"] = $"var e=document.querySelector('{inputSelector}');" +
-                                                         $"e.value='{phone}';" +
-                                                         "e.dispatchEvent(new Event('input',{bubbles:true}));"
-                                    });
-                                    currentValue = await cdp.GetInputValueAsync(inputSelector);
-                                }
-                            }
-                            Console.WriteLine(currentValue == phone
-                                ? $"[WA] Ввёл номер {phone}"
-                                : $"[WA] Не удалось ввести номер {phone}, текущее значение: '{currentValue}'");
-                        }
-                        else
-                        {
-                            Console.WriteLine("[WA] Поле ввода номера не найдено ни одним из селекторов");
+                            Console.WriteLine("[WA] Поле ввода номера не найдено ни одним из xpath");
                         }
                         }
                     catch (Exception ex)
