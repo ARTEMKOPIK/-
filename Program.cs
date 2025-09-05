@@ -1168,33 +1168,23 @@ namespace MaxTelegramBot
 
                         // Ждём появления поля ввода и вводим номер
                         await Task.Delay(25000);
-                        var xpaths = new[]
+                        const string phoneInputSelector = "input[aria-label='Введите свой номер телефона.']";
+                        if (await cdp.WaitForSelectorAsync(phoneInputSelector, timeoutMs: 2000))
                         {
-                            "//*[@id=\"app\"]/div[1]/div[2]/div[2]/div[2]/div/div/div[3]/div[1]/div[2]/div/div/div/form/input",
-                            "//*[@id=\"app\"]/div[1]/div[2]/div[2]/div[1]/div/div/div[3]/div[1]/div[2]/div/div/div/form/input"
-                        };
-                        var inputSet = false;
-                        foreach (var xp in xpaths)
-                        {
-                            Console.WriteLine($"[WA] Проверяем xpath: {xp}");
-                            if (await cdp.WaitForXPathAsync(xp, timeoutMs: 2000))
+                            var escapedSelector = phoneInputSelector.Replace("\\", "\\\\").Replace("'", "\\'");
+                            var escapedPhone = phone.Replace("\\", "\\\\").Replace("'", "\\'");
+                            await cdp.SendAsync("Runtime.evaluate", new JObject
                             {
-                                var escapedXpath = xp.Replace("\\", "\\\\").Replace("'", "\\'");
-                                var escapedPhone = phone.Replace("\\", "\\\\").Replace("'", "\\'");
-                                await cdp.SendAsync("Runtime.evaluate", new JObject
-                                {
-                                    ["expression"] =
-                                        $"var e=document.evaluate('{escapedXpath}',document,null,XPathResult.FIRST_ORDERED_NODE_TYPE,null).singleNodeValue;" +
-                                        $"if(e){{e.value='{escapedPhone}';e.dispatchEvent(new Event('input',{{bubbles:true}}));}}"
-                                });
-                                Console.WriteLine($"[WA] Ввёл номер {phone}");
-                                inputSet = true;
-                                break;
-                            }
+                                ["expression"] =
+                                    $"(function(){{var e=document.querySelector('{escapedSelector}');" +
+                                    "if(e){e.focus();e.select();document.execCommand('delete');" +
+                                    $"e.value='{escapedPhone}';e.dispatchEvent(new Event('input',{{bubbles:true}}));}})()"
+                            });
+                            Console.WriteLine($"[WA] Ввёл номер {phone}");
                         }
-                        if (!inputSet)
+                        else
                         {
-                            Console.WriteLine("[WA] Поле ввода номера не найдено ни одним из xpath");
+                            Console.WriteLine("[WA] Поле ввода номера не найдено");
                         }
                         }
                     catch (Exception ex)
