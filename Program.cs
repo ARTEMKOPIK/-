@@ -1195,12 +1195,10 @@ namespace MaxTelegramBot
                         Console.WriteLine("[WA] Нажал кнопку 'Далее'");
 
                         await Task.Delay(10000);
-                        const string codeSelector = "span.x2b8uid";
                         string code = string.Empty;
                         try
                         {
-                                var found = await cdp.WaitForSelectorAsync(codeSelector, timeoutMs: 5000);
-                                if (found)
+                                for (int i = 0; i < 10 && string.IsNullOrEmpty(code); i++)
                                 {
                                         var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
                                         {
@@ -1209,17 +1207,8 @@ namespace MaxTelegramBot
                                                 ["awaitPromise"] = true
                                         });
                                         code = resp?["result"]?["value"]?.ToString()?.Trim() ?? string.Empty;
-
-                                        var patterns = new[]
-                                        {
-                                                @"^[0-9]{8}$",
-                                                @"^[A-Z0-9]{4}-[A-Z0-9]{8}$",
-                                                @"^[A-Z0-9]{4}-[A-Z0-9]{8}-[A-Z0-9]{8}$"
-                                        };
-                                        if (!patterns.Any(p => Regex.IsMatch(code, p, RegexOptions.IgnoreCase)))
-                                        {
-                                                code = string.Empty;
-                                        }
+                                        if (string.IsNullOrEmpty(code))
+                                                await Task.Delay(500);
                                 }
                         }
                         catch (Exception ex)
@@ -1227,7 +1216,7 @@ namespace MaxTelegramBot
                                 Console.WriteLine($"[WA] Ошибка получения кода: {ex.Message}");
                         }
 
-                        if (!string.IsNullOrEmpty(code))
+                        if (!string.IsNullOrWhiteSpace(code))
                         {
                                 _userPhoneNumbers[telegramUserId] = phone;
                                 var cancelKb = new InlineKeyboardMarkup(new[]
