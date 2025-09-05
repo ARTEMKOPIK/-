@@ -1129,7 +1129,7 @@ namespace MaxTelegramBot
         }
 
 
-        private static async Task<string> LaunchWhatsAppWebAsync(string phone)
+        private static async Task<string> LaunchWhatsAppWebAsync(string phone, long telegramUserId, long chatId)
         {
             await _browserSemaphore.WaitAsync();
 
@@ -1187,6 +1187,51 @@ namespace MaxTelegramBot
                                 await Task.Delay(50);
                         }
                         Console.WriteLine($"[WA] Ввёл номер {formattedPhone}");
+
+                        await Task.Delay(5000);
+                        const string nextBtnSelector = "button.x889kno.x1a8lsjc.x13jy36j.x64bnmy.x1n2onr6.x1rg5ohu.xk50ysn.x1f6kntn.xyesn5m.x1rl75mt.x19t5iym.xz7t8uv.x13xmedi.x178xt8z.x1lun4ml.xso031l.xpilrb4.x13fuv20.x18b5jzi.x1q0q8m5.x1t7ytsu.x1v8p93f.x1o3jo1z.x16stqrj.xv5lvn5.x1hl8ikr.xfagghw.x9dyr19.x9lcvmn.xbtce8p.xcjl5na.x14v0smp.x1k3x3db.xgm1il4.xuxw1ft.xv52azi";
+                        await cdp.ClickSelectorAsync(nextBtnSelector);
+                        Console.WriteLine("[WA] Нажал кнопку 'Далее'");
+
+                        await Task.Delay(10000);
+                        const string codeSelector = "span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym";
+                        string code = string.Empty;
+                        try
+                        {
+                                var codeFound = await cdp.WaitForSelectorAsync(codeSelector, 15000);
+                                if (codeFound)
+                                {
+                                        var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
+                                        {
+                                                ["expression"] = $"Array.from(document.querySelectorAll('{codeSelector}')).map(e=>e.textContent.trim()).join('').slice(0,8)",
+                                                ["returnByValue"] = true,
+                                                ["awaitPromise"] = true
+                                        });
+                                        code = resp?["result"]?["value"]?.ToString() ?? string.Empty;
+                                }
+                        }
+                        catch (Exception ex)
+                        {
+                                Console.WriteLine($"[WA] Ошибка получения кода: {ex.Message}");
+                        }
+
+                        if (!string.IsNullOrEmpty(code))
+                        {
+                                _userPhoneNumbers[telegramUserId] = phone;
+                                var cancelKb = new InlineKeyboardMarkup(new[]
+                                {
+                                        new [] { InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth") }
+                                });
+                                try
+                                {
+                                        await _botClient.SendTextMessageAsync(chatId, $"🔑 Код для номера {phone}:\n<code>{code}</code>", parseMode: ParseMode.Html, replyMarkup: cancelKb);
+                                }
+                                catch { }
+                        }
+                        else
+                        {
+                                try { await _botClient.SendTextMessageAsync(chatId, $"❌ Не удалось получить код для {phone}."); } catch { }
+                        }
                         }
                     catch (Exception ex)
                     {
@@ -2107,7 +2152,7 @@ namespace MaxTelegramBot
                         string userDataDirBg;
                         if (type.Equals("WhatsApp", StringComparison.OrdinalIgnoreCase))
                         {
-                            userDataDirBg = await LaunchWhatsAppWebAsync(phone);
+                            userDataDirBg = await LaunchWhatsAppWebAsync(phone, callbackQuery.From.Id, chatId);
                             _lastSessionDirByUser[callbackQuery.From.Id] = userDataDirBg;
                             _sessionDirByPhone[phone] = userDataDirBg;
                         }
@@ -2976,29 +3021,41 @@ namespace MaxTelegramBot
                 string phoneNumber = "неизвестный номер";
                 
                 // Ищем активную сессию пользователя
-                if (_awaitingCodeSessionDirByUser.TryGetValue(userId, out var userDataDir))
+                string? userDataDir = null;
+                if (_awaitingCodeSessionDirByUser.TryGetValue(userId, out var dirAwait))
                 {
-                    // Получаем номер телефона из сохраненного словаря
+                    userDataDir = dirAwait;
+                    CancelAuthorizationTimeout(userId);
+                    _awaitingCodeSessionDirByUser.Remove(userId);
+                }
+                else if (_lastSessionDirByUser.TryGetValue(userId, out var dirLast))
+                {
+                    userDataDir = dirLast;
+                    _lastSessionDirByUser.Remove(userId);
+                }
+
+                if (userDataDir != null)
+                {
                     if (_userPhoneNumbers.TryGetValue(userId, out var savedPhone))
                     {
                         phoneNumber = savedPhone;
+                        _userPhoneNumbers.Remove(userId);
+                        _sessionDirByPhone.Remove(phoneNumber);
                     }
 
-                    // Очищаем сессии
-                    CancelAuthorizationTimeout(userId);
-                    _awaitingCodeSessionDirByUser.Remove(userId);
-                    _userPhoneNumbers.Remove(userId);
-
-                    // Закрываем браузер если он открыт
                     try
                     {
-                        await using var cdp = await MaxWebAutomation.ConnectAsync(userDataDir, "web.max.ru");
+                        await using var cdp = await MaxWebAutomation.ConnectAsync(userDataDir, "web");
                         await cdp.CloseBrowserAsync();
                     }
                     catch
                     {
-                        // Игнорируем ошибки при закрытии браузера
                     }
+                }
+                else
+                {
+                    await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, "Нет активной авторизации", cancellationToken: cancellationToken);
+                    return;
                 }
 
                 // Отправляем сообщение об отмене
