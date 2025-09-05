@@ -1194,21 +1194,17 @@ namespace MaxTelegramBot
                         Console.WriteLine("[WA] Нажал кнопку 'Далее'");
 
                         await Task.Delay(10000);
-                        const string codeSelector = "span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym";
+                        const string codeSelector = "span.x2b8uid";
                         string code = string.Empty;
                         try
                         {
-                                var codeFound = await cdp.WaitForSelectorAsync(codeSelector, 15000);
-                                if (codeFound)
+                                var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
                                 {
-                                        var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
-                                        {
-                                                ["expression"] = $"Array.from(document.querySelectorAll('{codeSelector}')).map(e=>e.textContent.trim()).join('').slice(0,8)",
-                                                ["returnByValue"] = true,
-                                                ["awaitPromise"] = true
-                                        });
-                                        code = resp?["result"]?["value"]?.ToString() ?? string.Empty;
-                                }
+                                        ["expression"] = $"Array.from(document.querySelectorAll('{codeSelector}')).map(e=>e.textContent.trim()).join('').slice(0,8)",
+                                        ["returnByValue"] = true,
+                                        ["awaitPromise"] = true
+                                });
+                                code = resp?["result"]?["value"]?.ToString() ?? string.Empty;
                         }
                         catch (Exception ex)
                         {
