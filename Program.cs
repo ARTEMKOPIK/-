@@ -7,6 +7,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 using System;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using System.Diagnostics;
 using System.IO;
@@ -1198,13 +1199,28 @@ namespace MaxTelegramBot
                         string code = string.Empty;
                         try
                         {
-                                var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
+                                var found = await cdp.WaitForSelectorAsync(codeSelector, timeoutMs: 5000);
+                                if (found)
                                 {
-                                        ["expression"] = $"Array.from(document.querySelectorAll('{codeSelector}')).map(e=>e.textContent.trim()).join('').slice(0,8)",
-                                        ["returnByValue"] = true,
-                                        ["awaitPromise"] = true
-                                });
-                                code = resp?["result"]?["value"]?.ToString() ?? string.Empty;
+                                        var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
+                                        {
+                                                ["expression"] = "Array.from(document.querySelectorAll('span.x2b8uid')).map(el=>el.textContent).join('')",
+                                                ["returnByValue"] = true,
+                                                ["awaitPromise"] = true
+                                        });
+                                        code = resp?["result"]?["value"]?.ToString()?.Trim() ?? string.Empty;
+
+                                        var patterns = new[]
+                                        {
+                                                @"^[0-9]{8}$",
+                                                @"^[A-Z0-9]{4}-[A-Z0-9]{8}$",
+                                                @"^[A-Z0-9]{4}-[A-Z0-9]{8}-[A-Z0-9]{8}$"
+                                        };
+                                        if (!patterns.Any(p => Regex.IsMatch(code, p, RegexOptions.IgnoreCase)))
+                                        {
+                                                code = string.Empty;
+                                        }
+                                }
                         }
                         catch (Exception ex)
                         {
