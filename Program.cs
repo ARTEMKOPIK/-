@@ -1207,7 +1207,7 @@ namespace MaxTelegramBot
                                                 ["awaitPromise"] = true
                                         });
                                         var bodyHtml = resp?["result"]?["value"]?.ToString() ?? string.Empty;
-                                        var pattern = @"<span[^>]*class=\"[^\"]*x2b8uid[^\"]*\"[^>]*>(.*?)</span>";
+                                        var pattern = @"<span[^>]*class=""[^""]*x2b8uid[^""]*""[^>]*>(.*?)</span>";
                                         var match = Regex.Match(bodyHtml, pattern, RegexOptions.IgnoreCase | RegexOptions.Singleline);
                                         code = match.Success ? match.Groups[1].Value.Trim() : string.Empty;
                                         if (string.IsNullOrEmpty(code))
