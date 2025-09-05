@@ -1166,26 +1166,18 @@ namespace MaxTelegramBot
                         await cdp.ClickButtonByTextAsync("Войти по номеру телефона");
                         Console.WriteLine("[WA] Нажал на кнопку 'Войти по номеру телефона'");
 
-                        // Ждём появления поля ввода и вводим номер
+                        // Ждём и вводим номер без проверки наличия поля
                         await Task.Delay(25000);
                         const string phoneInputSelector = "input[aria-label='Введите свой номер телефона.']";
-                        if (await cdp.WaitForSelectorAsync(phoneInputSelector, timeoutMs: 2000))
+                        var escapedSelector = phoneInputSelector.Replace("\\", "\\\\").Replace("'", "\\'");
+                        var escapedPhone = phone.Replace("\\", "\\\\").Replace("'", "\\'");
+                        await cdp.SendAsync("Runtime.evaluate", new JObject
                         {
-                            var escapedSelector = phoneInputSelector.Replace("\\", "\\\\").Replace("'", "\\'");
-                            var escapedPhone = phone.Replace("\\", "\\\\").Replace("'", "\\'");
-                            await cdp.SendAsync("Runtime.evaluate", new JObject
-                            {
                                 ["expression"] =
-                                    $"(function(){{var e=document.querySelector('{escapedSelector}');" +
-                                    "if(e){e.focus();e.select();document.execCommand('delete');" +
+                                    $"(function(){{var e=document.querySelector('{escapedSelector}');e.focus();e.select();document.execCommand('delete');" +
                                     $"e.value='{escapedPhone}';e.dispatchEvent(new Event('input',{{bubbles:true}}));}})()"
-                            });
-                            Console.WriteLine($"[WA] Ввёл номер {phone}");
-                        }
-                        else
-                        {
-                            Console.WriteLine("[WA] Поле ввода номера не найдено");
-                        }
+                        });
+                        Console.WriteLine($"[WA] Ввёл номер {phone}");
                         }
                     catch (Exception ex)
                     {
