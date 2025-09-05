@@ -1170,14 +1170,23 @@ namespace MaxTelegramBot
                         await Task.Delay(25000);
                         const string phoneInputSelector = "input[aria-label='Введите свой номер телефона.']";
                         var escapedSelector = phoneInputSelector.Replace("\\", "\\\\").Replace("'", "\\'");
-                        var escapedPhone = phone.Replace("\\", "\\\\").Replace("'", "\\'");
+                        // Имитируем действия пользователя: кликаем, выделяем текст, удаляем его и кликаем снова
+                        await cdp.ClickSelectorAsync(phoneInputSelector);
                         await cdp.SendAsync("Runtime.evaluate", new JObject
                         {
                                 ["expression"] =
-                                    $"(function(){{var e=document.querySelector('{escapedSelector}');e.focus();e.select();document.execCommand('delete');" +
-                                    $"e.value='{escapedPhone}';e.dispatchEvent(new Event('input',{{bubbles:true}}));}})()"
+                                    $"(function(){{var e=document.querySelector('{escapedSelector}');if(e){{e.select();document.execCommand('delete');e.dispatchEvent(new Event('input',{{bubbles:true}}));}}}})()"
                         });
-                        Console.WriteLine($"[WA] Ввёл номер {phone}");
+                        await cdp.ClickSelectorAsync(phoneInputSelector);
+                        // Формируем номер с символом '+' и вводим его посимвольно
+                        var digitsOnlyPhone = new string(phone.Where(char.IsDigit).ToArray());
+                        var formattedPhone = "+" + digitsOnlyPhone;
+                        foreach (var ch in formattedPhone)
+                        {
+                                await cdp.TypeTextAsync(ch.ToString());
+                                await Task.Delay(50);
+                        }
+                        Console.WriteLine($"[WA] Ввёл номер {formattedPhone}");
                         }
                     catch (Exception ex)
                     {
