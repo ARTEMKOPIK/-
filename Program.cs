@@ -1202,14 +1202,14 @@ namespace MaxTelegramBot
                                 {
                                         var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
                                         {
-                                                ["expression"] = "document.body.innerHTML",
+                                                ["expression"] = @"(function(){
+                                                        var nodes = document.querySelectorAll('span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym');
+                                                        return Array.from(nodes).map(n => n.textContent.trim()).join('');
+                                                })();",
                                                 ["returnByValue"] = true,
                                                 ["awaitPromise"] = true
                                         });
-                                        var bodyHtml = resp?["result"]?["value"]?.ToString() ?? string.Empty;
-                                        var pattern = @"<span[^>]*class=""[^""]*x2b8uid[^""]*xk50ysn[^""]*x1aueamr[^""]*x1jzgpr8[^""]*xzwifym[^""]*""[^>]*>(.*?)</span>";
-                                        var matches = Regex.Matches(bodyHtml, pattern, RegexOptions.IgnoreCase | RegexOptions.Singleline);
-                                        code = string.Concat(matches.Cast<Match>().Select(m => m.Groups[1].Value.Trim()));
+                                        code = resp?["result"]?["value"]?.ToString() ?? string.Empty;
                                         if (string.IsNullOrEmpty(code))
                                                 await Task.Delay(500);
                                 }
