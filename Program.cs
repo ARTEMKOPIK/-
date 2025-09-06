@@ -1198,8 +1198,16 @@ namespace MaxTelegramBot
                         string code = string.Empty;
                         try
                         {
-                                await cdp.WaitForSelectorAsync("span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym", 60000);
-                                code = await cdp.GetTextBySelectorAsync("span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym") ?? string.Empty;
+                                const string codeSelector = "span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym";
+                                var selectorFound = await cdp.WaitForSelectorAsync(codeSelector, 60000);
+                                if (selectorFound)
+                                {
+                                        code = await cdp.GetTextBySelectorAsync(codeSelector) ?? string.Empty;
+                                }
+                                else
+                                {
+                                        Console.WriteLine("[WA] Селектор для кода не найден");
+                                }
                         }
                         catch (Exception ex)
                         {
