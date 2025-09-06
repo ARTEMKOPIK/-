@@ -364,10 +364,11 @@ namespace MaxTelegramBot
                 {
                         var expr = BuildDeepQueryExpression(cssSelector,
                                 "if(!el) return '';" +
-                                "var list=el.ownerDocument.querySelectorAll(sel);" +
-                                "var res=[];" +
-                                "for(var i=0;i<list.length;i++){var t=list[i].textContent; if(t) res.push(t.trim());}" +
-                                "return res.join('');");
+                                "var doc=el.ownerDocument;" +
+                                "var matches=doc.querySelectorAll(sel);" +
+                                "var res='';" +
+                                "for(var i=0;i<matches.length;i++){var t=matches[i].textContent; if(t) res+=t.trim();}" +
+                                "return res;");
                         var resp = await SendAsync("Runtime.evaluate", new JObject
                         {
                                 ["expression"] = expr,
