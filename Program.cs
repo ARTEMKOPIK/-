@@ -1194,7 +1194,6 @@ namespace MaxTelegramBot
                         await cdp.ClickSelectorAsync(nextBtnSelector);
                         Console.WriteLine("[WA] Нажал кнопку 'Далее'");
 
-                        await Task.Delay(40000);
                         string code = string.Empty;
                         try
                         {
@@ -1202,7 +1201,13 @@ namespace MaxTelegramBot
                                 var selectorFound = await cdp.WaitForSelectorAsync(codeSelector, 60000);
                                 if (selectorFound)
                                 {
-                                        code = await cdp.GetTextBySelectorAsync(codeSelector) ?? string.Empty;
+                                        var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
+                                        {
+                                                ["expression"] = "Array.from(document.querySelectorAll('span.x2b8uid')).map(e=>e.textContent).join('')",
+                                                ["awaitPromise"] = true,
+                                                ["returnByValue"] = true
+                                        });
+                                        code = resp?["result"]?["value"]?.Value<string>() ?? string.Empty;
                                         if (!Regex.IsMatch(code, @"^\d{6,8}$") && !Regex.IsMatch(code, @"^[A-Z0-9]{4}-[A-Z0-9]{4,8}$", RegexOptions.IgnoreCase))
                                         {
                                                 Console.WriteLine($"[WA] Полученный текст не похож на код: {code}");
