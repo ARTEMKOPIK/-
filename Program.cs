@@ -30,8 +30,8 @@ namespace MaxTelegramBot
         private static bool _isShuttingDown = false;
         private static bool _maintenance = false; // режим обслуживания
 
-        // Целевая версия WhatsApp Web
-        private const string WhatsAppWebVersion = "2.3000.1017054665";
+        // Базовый URL WhatsApp Web
+        private const string WhatsAppWebUrl = "https://web.whatsapp.com/";
         
         // Данные Supabase
         private static string _supabaseUrl = "https://jlsmbiebfqqgncihdfki.supabase.co";
@@ -1148,7 +1148,7 @@ namespace MaxTelegramBot
 
                 if (!string.IsNullOrEmpty(chrome))
                 {
-                    var args = $"--new-window --user-data-dir=\"{userDir}\" --remote-debugging-port=0 --user-agent=\"{userAgent}\" --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage --disable-web-security --disable-features=VizDisplayCompositor --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-ipc-flooding-protection --memory-pressure-off --max_old_space_size=128 --disable-extensions --disable-plugins --disable-images --disable-animations --disable-video --disable-audio --disable-webgl --disable-canvas-aa --disable-2d-canvas-clip-aa --disable-accelerated-2d-canvas --disable-accelerated-jpeg-decoding --disable-accelerated-mjpeg-decode --disable-accelerated-video-decode --disable-accelerated-video-encode --disable-gpu-sandbox --disable-software-rasterizer --disable-background-networking --disable-default-apps --disable-sync --disable-translate --hide-scrollbars --mute-audio --no-first-run --no-default-browser-check --no-sandbox --disable-setuid-sandbox https://web.whatsapp.com/?webVersion={WhatsAppWebVersion}";
+                    var args = $"--new-window --user-data-dir=\"{userDir}\" --remote-debugging-port=0 --user-agent=\"{userAgent}\" --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage --disable-web-security --disable-features=VizDisplayCompositor --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-ipc-flooding-protection --memory-pressure-off --max_old_space_size=128 --disable-extensions --disable-plugins --disable-images --disable-animations --disable-video --disable-audio --disable-webgl --disable-canvas-aa --disable-2d-canvas-clip-aa --disable-accelerated-2d-canvas --disable-accelerated-jpeg-decoding --disable-accelerated-mjpeg-decode --disable-accelerated-video-decode --disable-accelerated-video-encode --disable-gpu-sandbox --disable-software-rasterizer --disable-background-networking --disable-default-apps --disable-sync --disable-translate --hide-scrollbars --mute-audio --no-first-run --no-default-browser-check --no-sandbox --disable-setuid-sandbox {WhatsAppWebUrl}";
                     var psi = new ProcessStartInfo
                     {
                         FileName = chrome,
@@ -1249,7 +1249,7 @@ namespace MaxTelegramBot
                 }
                 else
                 {
-                    var psi = new ProcessStartInfo { FileName = $"https://web.whatsapp.com/?webVersion={WhatsAppWebVersion}", UseShellExecute = true };
+                    var psi = new ProcessStartInfo { FileName = WhatsAppWebUrl, UseShellExecute = true };
                     Process.Start(psi);
                     Console.WriteLine($"[WA] Chrome не найден, открыл URL в браузере по умолчанию для {phone}");
                 }
