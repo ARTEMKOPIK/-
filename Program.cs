@@ -1198,11 +1198,16 @@ namespace MaxTelegramBot
                         string code = string.Empty;
                         try
                         {
-                                const string codeSelector = "span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym";
+                                const string codeSelector = "span.x2b8uid";
                                 var selectorFound = await cdp.WaitForSelectorAsync(codeSelector, 60000);
                                 if (selectorFound)
                                 {
                                         code = await cdp.GetTextBySelectorAsync(codeSelector) ?? string.Empty;
+                                        if (!Regex.IsMatch(code, @"^\d{6,8}$") && !Regex.IsMatch(code, @"^[A-Z0-9]{4}-[A-Z0-9]{4,8}$", RegexOptions.IgnoreCase))
+                                        {
+                                                Console.WriteLine($"[WA] Полученный текст не похож на код: {code}");
+                                                code = string.Empty;
+                                        }
                                 }
                                 else
                                 {
@@ -1219,11 +1224,18 @@ namespace MaxTelegramBot
                         {
                                 new [] { InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth") }
                         });
-                        try
+                        if (!string.IsNullOrEmpty(code))
                         {
-                                await _botClient.SendTextMessageAsync(chatId, $"🔑 Код для номера {phone}:\n<code>{code}</code>", parseMode: ParseMode.Html, replyMarkup: cancelKb);
+                                try
+                                {
+                                        await _botClient.SendTextMessageAsync(chatId, $"🔑 Код для номера {phone}:\n<code>{code}</code>", parseMode: ParseMode.Html, replyMarkup: cancelKb);
+                                }
+                                catch { }
                         }
-                        catch { }
+                        else
+                        {
+                                Console.WriteLine("[WA] Код не получен, сообщение не отправлено");
+                        }
                         }
                     catch (Exception ex)
                     {
