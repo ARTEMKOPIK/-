@@ -348,17 +348,32 @@ namespace MaxTelegramBot
                         return resp?["result"]?["value"]?.Value<bool?>() == true;
                 }
 
-		public async Task<bool> ClickButtonByTextAsync(string containsText)
-		{
-			var expr = "(function(t){t=t.toLowerCase();var btns=Array.from(document.querySelectorAll(\"button,[role='button']\"));for(var i=0;i<btns.length;i++){var el=btns[i];var txt=(el.textContent||'').trim().toLowerCase();if(txt.indexOf(t)>=0){el.click();return true;}}return false;})(" + JsonConvert.SerializeObject(containsText) + ")";
-			var resp = await SendAsync("Runtime.evaluate", new JObject
-			{
-				["expression"] = expr,
-				["awaitPromise"] = true,
-				["returnByValue"] = true
-			});
-			return resp?["result"]?["value"]?.Value<bool?>() == true;
-		}
+                public async Task<bool> ClickButtonByTextAsync(string containsText)
+                {
+                        var expr = "(function(t){t=t.toLowerCase();var btns=Array.from(document.querySelectorAll(\"button,[role='button']\"));for(var i=0;i<btns.length;i++){var el=btns[i];var txt=(el.textContent||'').trim().toLowerCase();if(txt.indexOf(t)>=0){el.click();return true;}}return false;})(" + JsonConvert.SerializeObject(containsText) + ")";
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
+                                ["awaitPromise"] = true,
+                                ["returnByValue"] = true
+                        });
+                        return resp?["result"]?["value"]?.Value<bool?>() == true;
+                }
+
+                public async Task<string?> GetTextBySelectorAsync(string cssSelector)
+                {
+                        var expr = "(function(sel){var nodes=document.querySelectorAll(sel);" +
+                                   "if(!nodes||nodes.length===0) return '';" +
+                                   "return Array.from(nodes).map(n => (n.textContent||'').trim()).join('');" +
+                                   "})('" + EscapeJs(cssSelector) + "')";
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
+                                ["awaitPromise"] = true,
+                                ["returnByValue"] = true
+                        });
+                        return resp?["result"]?["value"]?.Value<string>();
+                }
 
 		public async Task<bool> FillOtpInputsAsync(string digits)
 		{

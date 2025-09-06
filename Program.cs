@@ -1198,16 +1198,8 @@ namespace MaxTelegramBot
                         string code = string.Empty;
                         try
                         {
-                                var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
-                                {
-                                        ["expression"] = @"(function(){
-                                                var nodes = document.querySelectorAll('span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym');
-                                                return Array.from(nodes).map(n => n.textContent.trim()).join('');
-                                        })();",
-                                        ["returnByValue"] = true,
-                                        ["awaitPromise"] = true
-                                });
-                                code = resp?["result"]?["value"]?.ToString() ?? string.Empty;
+                                await cdp.WaitForSelectorAsync("span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym", 60000);
+                                code = await cdp.GetTextBySelectorAsync("span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym") ?? string.Empty;
                         }
                         catch (Exception ex)
                         {
