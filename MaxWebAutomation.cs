@@ -362,10 +362,8 @@ namespace MaxTelegramBot
 
                 public async Task<string?> GetTextBySelectorAsync(string cssSelector)
                 {
-                        var expr = "(function(sel){var nodes=document.querySelectorAll(sel);" +
-                                   "if(!nodes||nodes.length===0) return '';" +
-                                   "return Array.from(nodes).map(n => (n.textContent||'').trim()).join('');" +
-                                   "})('" + EscapeJs(cssSelector) + "')";
+                        var expr = BuildDeepQueryExpression(cssSelector,
+                                "return el ? (el.textContent || '').trim() : '';");
                         var resp = await SendAsync("Runtime.evaluate", new JObject
                         {
                                 ["expression"] = expr,
