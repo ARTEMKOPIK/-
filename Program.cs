@@ -1194,15 +1194,38 @@ namespace MaxTelegramBot
                         await cdp.ClickSelectorAsync(nextBtnSelector);
                         Console.WriteLine("[WA] Нажал кнопку 'Далее'");
 
-                        await Task.Delay(40000);
                         string code = string.Empty;
                         try
                         {
-                                const string codeSelector = "span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym";
+                                const string codeSelector = "span.x2b8uid";
                                 var selectorFound = await cdp.WaitForSelectorAsync(codeSelector, 60000);
                                 if (selectorFound)
                                 {
-                                        code = await cdp.GetTextBySelectorAsync(codeSelector) ?? string.Empty;
+                                        var rawCode = await cdp.GetTextBySelectorAsync(codeSelector) ?? string.Empty;
+                                        var isNumeric = Regex.IsMatch(rawCode, @"^\d{6,8}$");
+                                        var isAlphaNum = Regex.IsMatch(rawCode, @"^[A-Z0-9]{4}-[A-Z0-9]{4,8}$", RegexOptions.IgnoreCase);
+                                        if (isNumeric || isAlphaNum)
+                                        {
+                                                var lastCodePath = Path.Combine(userDir, "last_code.txt");
+                                                string? lastSentTelegramCode = null;
+                                                if (System.IO.File.Exists(lastCodePath))
+                                                {
+                                                        lastSentTelegramCode = System.IO.File.ReadAllText(lastCodePath).Trim();
+                                                }
+                                                if (rawCode != lastSentTelegramCode)
+                                                {
+                                                        code = rawCode;
+                                                        System.IO.File.WriteAllText(lastCodePath, code);
+                                                }
+                                                else
+                                                {
+                                                        Console.WriteLine("[WA] Код уже был отправлен ранее, пропускаю");
+                                                }
+                                        }
+                                        else
+                                        {
+                                                Console.WriteLine($"[WA] Полученный текст не похож на код: {rawCode}");
+                                        }
                                 }
                                 else
                                 {
@@ -1214,17 +1237,20 @@ namespace MaxTelegramBot
                                 Console.WriteLine($"[WA] Ошибка получения кода: {ex.Message}");
                         }
 
-                        _userPhoneNumbers[telegramUserId] = phone;
-                        var cancelKb = new InlineKeyboardMarkup(new[]
+                        if (!string.IsNullOrEmpty(code))
                         {
-                                new [] { InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth") }
-                        });
-                        try
-                        {
-                                await _botClient.SendTextMessageAsync(chatId, $"🔑 Код для номера {phone}:\n<code>{code}</code>", parseMode: ParseMode.Html, replyMarkup: cancelKb);
+                                _userPhoneNumbers[telegramUserId] = phone;
+                                var cancelKb = new InlineKeyboardMarkup(new[]
+                                {
+                                        new [] { InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth") }
+                                });
+                                try
+                                {
+                                        await _botClient.SendTextMessageAsync(chatId, $"🔑 Код для номера {phone}:\n<code>{code}</code>", parseMode: ParseMode.Html, replyMarkup: cancelKb);
+                                }
+                                catch { }
                         }
-                        catch { }
-                        }
+                    }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"[WA] Не удалось нажать на 'Войти по номеру телефона': {ex.Message}");
