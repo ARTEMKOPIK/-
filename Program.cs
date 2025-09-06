@@ -1194,48 +1194,36 @@ namespace MaxTelegramBot
                         await cdp.ClickSelectorAsync(nextBtnSelector);
                         Console.WriteLine("[WA] Нажал кнопку 'Далее'");
 
-                        await Task.Delay(10000);
+                        await Task.Delay(40000);
                         string code = string.Empty;
                         try
                         {
-                                for (int i = 0; i < 10 && string.IsNullOrEmpty(code); i++)
+                                var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
                                 {
-                                        var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
-                                        {
-                                                ["expression"] = @"(function(){
-                                                        var nodes = document.querySelectorAll('span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym');
-                                                        return Array.from(nodes).map(n => n.textContent.trim()).join('');
-                                                })();",
-                                                ["returnByValue"] = true,
-                                                ["awaitPromise"] = true
-                                        });
-                                        code = resp?["result"]?["value"]?.ToString() ?? string.Empty;
-                                        if (string.IsNullOrEmpty(code))
-                                                await Task.Delay(500);
-                                }
+                                        ["expression"] = @"(function(){
+                                                var nodes = document.querySelectorAll('span.x2b8uid.xk50ysn.x1aueamr.x1jzgpr8.xzwifym');
+                                                return Array.from(nodes).map(n => n.textContent.trim()).join('');
+                                        })();",
+                                        ["returnByValue"] = true,
+                                        ["awaitPromise"] = true
+                                });
+                                code = resp?["result"]?["value"]?.ToString() ?? string.Empty;
                         }
                         catch (Exception ex)
                         {
                                 Console.WriteLine($"[WA] Ошибка получения кода: {ex.Message}");
                         }
 
-                        if (!string.IsNullOrWhiteSpace(code))
+                        _userPhoneNumbers[telegramUserId] = phone;
+                        var cancelKb = new InlineKeyboardMarkup(new[]
                         {
-                                _userPhoneNumbers[telegramUserId] = phone;
-                                var cancelKb = new InlineKeyboardMarkup(new[]
-                                {
-                                        new [] { InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth") }
-                                });
-                                try
-                                {
-                                        await _botClient.SendTextMessageAsync(chatId, $"🔑 Код для номера {phone}:\n<code>{code}</code>", parseMode: ParseMode.Html, replyMarkup: cancelKb);
-                                }
-                                catch { }
-                        }
-                        else
+                                new [] { InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth") }
+                        });
+                        try
                         {
-                                try { await _botClient.SendTextMessageAsync(chatId, $"❌ Не удалось получить код для {phone}."); } catch { }
+                                await _botClient.SendTextMessageAsync(chatId, $"🔑 Код для номера {phone}:\n<code>{code}</code>", parseMode: ParseMode.Html, replyMarkup: cancelKb);
                         }
+                        catch { }
                         }
                     catch (Exception ex)
                     {
