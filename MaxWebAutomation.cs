@@ -378,6 +378,17 @@ namespace MaxTelegramBot
                         return resp?["result"]?["value"]?.Value<string>();
                 }
 
+                public async Task<string?> GetBodyTextAsync()
+                {
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = "document.body ? document.body.innerText : ''",
+                                ["awaitPromise"] = true,
+                                ["returnByValue"] = true
+                        });
+                        return resp?["result"]?["value"]?.Value<string>();
+                }
+
 		public async Task<bool> FillOtpInputsAsync(string digits)
 		{
 			var expr = "(function(code){"+
