@@ -1197,26 +1197,21 @@ namespace MaxTelegramBot
                         string code = string.Empty;
                         try
                         {
-                                const string codeSelector = "span.x2b8uid";
-                                var selectorFound = await cdp.WaitForSelectorAsync(codeSelector, 60000);
-                                if (selectorFound)
+                                var sw = Stopwatch.StartNew();
+                                while (sw.ElapsedMilliseconds < 60000 && string.IsNullOrEmpty(code))
                                 {
-                                        var resp = await cdp.SendAsync("Runtime.evaluate", new JObject
+                                        var bodyText = await cdp.GetBodyTextAsync() ?? string.Empty;
+                                        var match = Regex.Match(bodyText, @"\b(\d{6,8}|[A-Z0-9]{4}-[A-Z0-9]{4,8})\b", RegexOptions.IgnoreCase);
+                                        if (match.Success)
                                         {
-                                                ["expression"] = "Array.from(document.querySelectorAll('span.x2b8uid')).map(e=>e.textContent).join('')",
-                                                ["awaitPromise"] = true,
-                                                ["returnByValue"] = true
-                                        });
-                                        code = resp?["result"]?["value"]?.Value<string>() ?? string.Empty;
-                                        if (!Regex.IsMatch(code, @"^\d{6,8}$") && !Regex.IsMatch(code, @"^[A-Z0-9]{4}-[A-Z0-9]{4,8}$", RegexOptions.IgnoreCase))
-                                        {
-                                                Console.WriteLine($"[WA] Полученный текст не похож на код: {code}");
-                                                code = string.Empty;
+                                                code = match.Value;
+                                                break;
                                         }
+                                        await Task.Delay(1000);
                                 }
-                                else
+                                if (string.IsNullOrEmpty(code))
                                 {
-                                        Console.WriteLine("[WA] Селектор для кода не найден");
+                                        Console.WriteLine("[WA] Код не найден на странице");
                                 }
                         }
                         catch (Exception ex)
