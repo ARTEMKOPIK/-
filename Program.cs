@@ -382,17 +382,21 @@ namespace MaxTelegramBot
                 }
                 
                 Console.WriteLine("[MAX] Начинаю ввод номера...");
-				const string inputSelector = "input.field.svelte-12ka1eq";
-				await cdp.FocusSelectorAsync(inputSelector);
-				await cdp.ClearInputAsync(inputSelector);
-				await cdp.TypeTextAsync(digits);
-				Console.WriteLine($"[MAX] Ввел номер {digits}");
+                                const string inputSelector = "input.field";
+                                await cdp.FocusSelectorAsync(inputSelector);
+                                await cdp.ClearInputAsync(inputSelector);
+                                await cdp.TypeTextAsync(digits);
+                                Console.WriteLine($"[MAX] Ввел номер {digits}");
 
-				// Кликаем по кнопке Войти
-				const string submitSelector = "button.button.button--large.button--neutral-primary.button--stretched.svelte-1nz7ayb";
-				await Task.Delay(300);
-				await cdp.ClickSelectorAsync(submitSelector);
-				Console.WriteLine("[MAX] Нажал кнопку Войти");
+                                // Кликаем по кнопке "Войти" (по тексту), при необходимости используем резервный селектор
+                                await Task.Delay(300);
+                                bool clicked = await cdp.ClickButtonByTextAsync("Войти");
+                                if (!clicked)
+                                {
+                                    const string submitSelector = "button.button.button--large.button--neutral-primary.button--stretched";
+                                    clicked = await cdp.ClickSelectorAsync(submitSelector);
+                                }
+                                Console.WriteLine(clicked ? "[MAX] Нажал кнопку Войти" : "[MAX] Не удалось нажать кнопку Войти");
 
 				                // Проверяем на капчу после ввода номера
                 Console.WriteLine("[MAX] Проверяю на капчу после ввода номера...");
