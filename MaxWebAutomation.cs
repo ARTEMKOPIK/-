@@ -203,16 +203,17 @@ namespace MaxTelegramBot
 			});
 		}
 
-                public async Task ClickSelectorAsync(string cssSelector)
+                public async Task<bool> ClickSelectorAsync(string cssSelector)
                 {
                         var expr = BuildDeepQueryExpression(cssSelector,
                                 "if(el){el.click(); return true;} return false;");
-                        await SendAsync("Runtime.evaluate", new JObject
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
                         {
                                 ["expression"] = expr,
                                 ["awaitPromise"] = true,
                                 ["returnByValue"] = true
                         });
+                        return resp?["result"]?["value"]?.Value<bool?>() == true;
                 }
 
                 public async Task<bool> ClickSelectorByMouseAsync(string cssSelector)
