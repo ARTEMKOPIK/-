@@ -390,16 +390,27 @@ namespace MaxTelegramBot
                         return resp?["result"]?["value"]?.Value<string>();
                 }
 
-		public async Task<bool> FillOtpInputsAsync(string digits)
-		{
-			var expr = "(function(code){"+
-				"var selectors=['div.code input','input.digit','input[type=number].digit','input[type=number]'];"+
-				"var inputs=null;"+
-				"for(var i=0;i<selectors.length;i++){var list=document.querySelectorAll(selectors[i]); if(list&&list.length){inputs=list; if(list.length>=code.length) break;}}"+
-				"if(!inputs||inputs.length===0) return false;"+
-				"for(var i=0;i<code.length && i<inputs.length;i++){var el=inputs[i]; try{el.focus(); el.value=''; el.dispatchEvent(new Event('input',{bubbles:true})); el.value=code[i]; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}}"+
-				"return true;"+
-			"})(" + JsonConvert.SerializeObject(digits) + ")";
+                public async Task<bool> FillOtpInputsAsync(string digits)
+                {
+                        var expr = "(function(code){"+
+                                "var selectors=['div.code input','input.digit','input[type=number].digit','input[type=number]'];"+
+                                "var inputs=null;"+
+                                "for(var i=0;i<selectors.length;i++){var list=document.querySelectorAll(selectors[i]); if(list&&list.length){inputs=list; if(list.length>=code.length) break;}}"+
+                                "if(!inputs||inputs.length===0) return false;"+
+                                "for(var i=0;i<code.length && i<inputs.length;i++){var el=inputs[i]; try{"+
+                                        "el.focus();"+
+                                        // Сброс и первоначальный input
+                                        "el.value=''; el.dispatchEvent(new Event('input',{bubbles:true}));"+
+                                        // События клавиатуры для имитации ввода
+                                        "el.dispatchEvent(new KeyboardEvent('keydown',{key:code[i],bubbles:true}));"+
+                                        "el.value=code[i];"+
+                                        "el.dispatchEvent(new KeyboardEvent('keyup',{key:code[i],bubbles:true}));"+
+                                        // Финальные события ввода
+                                        "el.dispatchEvent(new Event('input',{bubbles:true}));"+
+                                        "el.dispatchEvent(new Event('change',{bubbles:true}));"+
+                                    "}catch(e){}}"+
+                                "return true;"+
+                        "})(" + JsonConvert.SerializeObject(digits) + ")";
 			var resp = await SendAsync("Runtime.evaluate", new JObject
 			{
 				["expression"] = expr,
