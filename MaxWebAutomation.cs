@@ -263,20 +263,25 @@ namespace MaxTelegramBot
                         return true;
                 }
 
+                public async Task<bool> ElementExistsAsync(string cssSelector)
+                {
+                        var expr = BuildDeepQueryExpression(cssSelector, "return el!=null;");
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
+                                ["awaitPromise"] = false,
+                                ["returnByValue"] = true
+                        });
+                        return resp?["result"]?["value"]?.Value<bool?>() == true;
+                }
+
                 public async Task<bool> WaitForSelectorAsync(string cssSelector, int timeoutMs = 15000, int pollMs = 250)
                 {
                         var sw = Stopwatch.StartNew();
                         while (sw.ElapsedMilliseconds < timeoutMs)
                         {
-                                var expr = BuildDeepQueryExpression(cssSelector, "return el!=null;");
-                                var resp = await SendAsync("Runtime.evaluate", new JObject
-                                {
-                                        ["expression"] = expr,
-                                        ["awaitPromise"] = false,
-                                        ["returnByValue"] = true
-                                });
-                                var result = resp?["result"]?["value"]?.Value<bool?>();
-                                if (result == true) return true;
+                                if (await ElementExistsAsync(cssSelector))
+                                        return true;
                                 await Task.Delay(pollMs);
                         }
                         return false;
@@ -384,6 +389,37 @@ namespace MaxTelegramBot
                         var resp = await SendAsync("Runtime.evaluate", new JObject
                         {
                                 ["expression"] = "document.body ? document.body.innerText : ''",
+                                ["awaitPromise"] = true,
+                                ["returnByValue"] = true
+                        });
+                        return resp?["result"]?["value"]?.Value<string>();
+                }
+
+                public async Task<string?> FindTextByPatternAsync(string pattern, bool caseInsensitive = true, int maxLength = 4096)
+                {
+                        var expr = "(function(pattern,flags,maxLen){" +
+                                   "function trimVal(v){if(!v) return '';var s=String(v);if(maxLen>0&&s.length>maxLen)s=s.slice(0,maxLen);" +
+                                   "return s;}" +
+                                   "try{var regex=new RegExp(pattern,flags);}catch(e){return null;}" +
+                                   "var root=document.body||document.documentElement;if(!root) return null;" +
+                                   "var seen=Object.create(null);" +
+                                   "var walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null);" +
+                                   "var node;" +
+                                   "while((node=walker.nextNode())){var txt=trimVal(node.textContent||'').trim();if(!txt) continue;var m=txt.match(regex);if(m&&m[0]) return m[0];}" +
+                                   "var all=root.querySelectorAll?root.querySelectorAll('*'):[];" +
+                                   "for(var i=0;i<all.length;i++){var el=all[i];var text=trimVal(el.innerText||'').trim();" +
+                                   "if(text&&!seen[text]){seen[text]=true;var mt=text.match(regex);if(mt&&mt[0]) return mt[0];}" +
+                                   "var attrs=el.attributes;if(!attrs) continue;" +
+                                   "for(var j=0;j<attrs.length;j++){var val=trimVal(attrs[j].value||'').trim();if(!val) continue;" +
+                                   "if(!seen[val]){seen[val]=true;var ma=val.match(regex);if(ma&&ma[0]) return ma[0];}}}" +
+                                   "return null;})(" +
+                                   JsonConvert.SerializeObject(pattern) + "," +
+                                   JsonConvert.SerializeObject(caseInsensitive ? "gi" : "g") + "," +
+                                   maxLength + ")";
+
+                        var resp = await SendAsync("Runtime.evaluate", new JObject
+                        {
+                                ["expression"] = expr,
                                 ["awaitPromise"] = true,
                                 ["returnByValue"] = true
                         });
