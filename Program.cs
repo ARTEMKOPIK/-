@@ -79,6 +79,70 @@ namespace MaxTelegramBot
         // Управление ресурсами для множественных браузеров
         private static readonly SemaphoreSlim _browserSemaphore = new SemaphoreSlim(30, 30); // Максимум 30 браузеров
 
+        // Настройки и селекторы для автоматизации входа WhatsApp
+        private static readonly string[] WhatsAppLoginButtonTexts =
+        {
+            "Войти по номеру телефона",
+            "Войти по номеру",
+            "Link with phone number",
+            "Log in with phone number",
+            "Continue with phone number"
+        };
+
+        private static readonly string[] WhatsAppLoginButtonSelectors =
+        {
+            "button[data-testid*='link-device-phone-number']",
+            "button[data-testid*='link-phone-number']",
+            "button[data-testid*='login-phone']"
+        };
+
+        private static readonly string[] WhatsAppPhoneInputSelectors =
+        {
+            "input[aria-label*='номер телефона']",
+            "input[aria-label*='phone number']",
+            "input[data-testid*='phone-number']",
+            "input[type='tel']",
+            "input[autocomplete='tel']",
+            "input[name*='phone']"
+        };
+
+        private static readonly string[] WhatsAppNextButtonTexts =
+        {
+            "Далее",
+            "Продолжить",
+            "Next",
+            "Continue"
+        };
+
+        private static readonly string[] WhatsAppNextButtonSelectors =
+        {
+            "button[data-testid*='submit']",
+            "button[type='submit']",
+            "button[aria-label*='далее']",
+            "button[aria-label*='next']"
+        };
+
+        private static readonly string[] WhatsAppCodeSelectors =
+        {
+            "div[data-testid*='code']",
+            "span[data-testid*='code']",
+            "div[aria-label*='код']",
+            "div[aria-label*='code']",
+            "div[data-otp-code]",
+            "span[data-otp-code]",
+            "div[class*='code'] span",
+            "span[class*='code']"
+        };
+
+        private const string WhatsAppCodePatternJs =
+            "(?:\\b\\d{2}[-\\s]?\\d{3}[-\\s]?\\d{3}\\b|\\b\\d{3}[-\\s]?\\d{3}\\b|\\b\\d{6}\\b|\\b\\d{8}\\b|\\b[A-Z0-9]{4}-[A-Z0-9]{4,8}\\b|\\b[A-Z0-9]{6,10}\\b)";
+
+        private static readonly Regex WhatsAppCodeRegex = new(
+            @"(?:\b\d{2}[-\s]?\d{3}[-\s]?\d{3}\b|\b\d{3}[-\s]?\d{3}\b|\b\d{6}\b|\b\d{8}\b|\b[A-Z0-9]{4}-[A-Z0-9]{4,8}\b|\b[A-Z0-9]{6,10}\b)",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+        private static readonly Regex InvisibleCharactersRegex = new(@"[\u200E\u200F\u202A-\u202E]", RegexOptions.Compiled);
+
         // Таймеры ожидания кода авторизации по пользователям
         private static readonly Dictionary<long, List<(string sessionDir, CancellationTokenSource cts)>> _authTimeoutCtsByUser = new();
 
@@ -139,6 +203,163 @@ namespace MaxTelegramBot
             {
                 if (System.IO.File.Exists(p)) return p;
             }
+            return null;
+        }
+
+        private static string FormatPhoneForWhatsApp(string phone)
+        {
+            var digitsOnly = new string((phone ?? string.Empty).Where(char.IsDigit).ToArray());
+            return string.IsNullOrEmpty(digitsOnly) ? "+" : "+" + digitsOnly;
+        }
+
+        private static string RemoveInvisibleCharacters(string value) => InvisibleCharactersRegex.Replace(value, string.Empty);
+
+        private static async Task<bool> TryClickButtonByTextsAsync(MaxWebAutomation cdp, IEnumerable<string> texts)
+        {
+            foreach (var text in texts)
+            {
+                try
+                {
+                    if (await cdp.ClickButtonByTextAsync(text))
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // Игнорируем ошибки и пробуем следующий вариант
+                }
+            }
+            return false;
+        }
+
+        private static async Task<string?> WaitForAnySelectorAsync(MaxWebAutomation cdp, IEnumerable<string> selectors, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            var selectorList = selectors.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToArray();
+            if (selectorList.Length == 0)
+            {
+                return null;
+            }
+
+            var sw = Stopwatch.StartNew();
+            while (sw.Elapsed < timeout)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                foreach (var selector in selectorList)
+                {
+                    try
+                    {
+                        if (await cdp.ElementExistsAsync(selector))
+                        {
+                            return selector;
+                        }
+                    }
+                    catch
+                    {
+                        // Продолжаем попытки
+                    }
+                }
+
+                await Task.Delay(250, cancellationToken);
+            }
+
+            return null;
+        }
+
+        private static string? ExtractWhatsAppVerificationCode(string? source)
+        {
+            if (string.IsNullOrWhiteSpace(source))
+            {
+                return null;
+            }
+
+            var cleaned = RemoveInvisibleCharacters(source).Trim();
+            if (cleaned.Length == 0)
+            {
+                return null;
+            }
+
+            var match = WhatsAppCodeRegex.Match(cleaned);
+            if (!match.Success)
+            {
+                return null;
+            }
+
+            var matchedValue = match.Value.Trim();
+            var alphanumeric = Regex.Replace(matchedValue, "[^A-Za-z0-9]", string.Empty);
+            if (alphanumeric.Length == 0)
+            {
+                return null;
+            }
+
+            if (Regex.IsMatch(alphanumeric, "^\\d+$"))
+            {
+                if (alphanumeric.Length == 8)
+                {
+                    return $"{alphanumeric[..2]}-{alphanumeric.Substring(2, 3)}-{alphanumeric.Substring(5)}";
+                }
+
+                if (alphanumeric.Length == 6)
+                {
+                    return alphanumeric;
+                }
+            }
+
+            if (matchedValue.Contains('-', StringComparison.Ordinal))
+            {
+                return matchedValue.Replace(" ", string.Empty).ToUpperInvariant();
+            }
+
+            if (alphanumeric.Length >= 4 && alphanumeric.Length <= 12)
+            {
+                return alphanumeric.ToUpperInvariant();
+            }
+
+            return matchedValue.ToUpperInvariant();
+        }
+
+        private static async Task<string?> WaitForWhatsAppVerificationCodeAsync(MaxWebAutomation cdp, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            var sw = Stopwatch.StartNew();
+            while (sw.Elapsed < timeout)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                foreach (var selector in WhatsAppCodeSelectors)
+                {
+                    try
+                    {
+                        var text = await cdp.GetTextBySelectorAsync(selector);
+                        var code = ExtractWhatsAppVerificationCode(text);
+                        if (!string.IsNullOrEmpty(code))
+                        {
+                            return code;
+                        }
+                    }
+                    catch
+                    {
+                        // Продолжаем поиск другими способами
+                    }
+                }
+
+                try
+                {
+                    var match = await cdp.FindTextByPatternAsync(WhatsAppCodePatternJs, caseInsensitive: true);
+                    var codeFromPattern = ExtractWhatsAppVerificationCode(match);
+                    if (!string.IsNullOrEmpty(codeFromPattern))
+                    {
+                        return codeFromPattern;
+                    }
+                }
+                catch
+                {
+                    // Переходим к следующей попытке
+                }
+
+                await Task.Delay(750, cancellationToken);
+            }
+
             return null;
         }
 
@@ -1141,7 +1362,7 @@ namespace MaxTelegramBot
             try
             {
                 var chrome = TryGetChromePath();
-                var safePhone = new string((phone ?? "").Where(char.IsDigit).ToArray());
+                var safePhone = new string((phone ?? string.Empty).Where(char.IsDigit).ToArray());
                 var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
                 var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 8);
                 var userDir = Path.Combine(Path.GetTempPath(), $"wa_web_{safePhone}_{timestamp}_{randomSuffix}");
@@ -1152,7 +1373,8 @@ namespace MaxTelegramBot
 
                 if (!string.IsNullOrEmpty(chrome))
                 {
-                    var args = $"--new-window --user-data-dir=\"{userDir}\" --remote-debugging-port=0 --user-agent=\"{userAgent}\" --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage --disable-web-security --disable-features=VizDisplayCompositor --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-ipc-flooding-protection --memory-pressure-off --max_old_space_size=128 --disable-extensions --disable-plugins --disable-images --disable-animations --disable-video --disable-audio --disable-webgl --disable-canvas-aa --disable-2d-canvas-clip-aa --disable-accelerated-2d-canvas --disable-accelerated-jpeg-decoding --disable-accelerated-mjpeg-decode --disable-accelerated-video-decode --disable-accelerated-video-encode --disable-gpu-sandbox --disable-software-rasterizer --disable-background-networking --disable-default-apps --disable-sync --disable-translate --hide-scrollbars --mute-audio --no-first-run --no-default-browser-check --no-sandbox --disable-setuid-sandbox {WhatsAppWebUrl}";
+                    var args =
+                        $"--new-window --user-data-dir=\"{userDir}\" --remote-debugging-port=0 --user-agent=\"{userAgent}\" --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage --disable-web-security --disable-features=VizDisplayCompositor --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-ipc-flooding-protection --memory-pressure-off --max_old_space_size=128 --disable-extensions --disable-plugins --disable-images --disable-animations --disable-video --disable-audio --disable-webgl --disable-canvas-aa --disable-2d-canvas-clip-aa --disable-accelerated-2d-canvas --disable-accelerated-jpeg-decoding --disable-accelerated-mjpeg-decode --disable-accelerated-video-decode --disable-accelerated-video-encode --disable-gpu-sandbox --disable-software-rasterizer --disable-background-networking --disable-default-apps --disable-sync --disable-translate --hide-scrollbars --mute-audio --no-first-run --no-default-browser-check --no-sandbox --disable-setuid-sandbox {WhatsAppWebUrl}";
                     var psi = new ProcessStartInfo
                     {
                         FileName = chrome,
@@ -1163,87 +1385,93 @@ namespace MaxTelegramBot
                     Process.Start(psi);
                     Console.WriteLine($"[WA] Открыл Chrome для {phone} с User-Agent: {userAgent} в папке: {Path.GetFileName(userDir)}");
 
-                    await Task.Delay(10000); // ждём 10 секунд для прогрузки страницы
+                    await Task.Delay(7000);
 
                     try
                     {
                         await using var cdp = await MaxWebAutomation.ConnectAsync(userDir, "web.whatsapp.com");
-                        await cdp.ClickButtonByTextAsync("Войти по номеру телефона");
-                        Console.WriteLine("[WA] Нажал на кнопку 'Войти по номеру телефона'");
+                        var formattedPhone = FormatPhoneForWhatsApp(phone);
 
-                        // Ждём и вводим номер без проверки наличия поля
-                        await Task.Delay(25000);
-                        const string phoneInputSelector = "input[aria-label='Введите свой номер телефона.']";
-                        var escapedSelector = phoneInputSelector.Replace("\\", "\\\\").Replace("'", "\\'");
-                        // Имитируем действия пользователя: кликаем, выделяем текст, удаляем его и кликаем снова
-                        await cdp.ClickSelectorAsync(phoneInputSelector);
-                        await cdp.SendAsync("Runtime.evaluate", new JObject
+                        var loginClicked = await TryClickButtonByTextsAsync(cdp, WhatsAppLoginButtonTexts);
+                        if (!loginClicked)
                         {
-                                ["expression"] =
-                                    $"(function(){{var e=document.querySelector('{escapedSelector}');if(e){{e.select();document.execCommand('delete');e.dispatchEvent(new Event('input',{{bubbles:true}}));}}}})()"
-                        });
-                        await cdp.ClickSelectorAsync(phoneInputSelector);
-                        // Формируем номер с символом '+' и вводим его посимвольно
-                        var digitsOnlyPhone = new string(phone.Where(char.IsDigit).ToArray());
-                        var formattedPhone = "+" + digitsOnlyPhone;
-                        foreach (var ch in formattedPhone)
-                        {
-                                await cdp.TypeTextAsync(ch.ToString());
-                                await Task.Delay(50);
+                            var loginSelector = await WaitForAnySelectorAsync(cdp, WhatsAppLoginButtonSelectors, TimeSpan.FromSeconds(25), CancellationToken.None);
+                            if (!string.IsNullOrEmpty(loginSelector))
+                            {
+                                loginClicked = await cdp.ClickSelectorAsync(loginSelector);
+                            }
                         }
-                        Console.WriteLine($"[WA] Ввёл номер {formattedPhone}");
+                        Console.WriteLine(loginClicked
+                            ? "[WA] Кнопка входа по номеру телефона нажата"
+                            : "[WA] Кнопка входа по номеру телефона не найдена (вероятно, уже открыт шаг ввода)");
 
-                        await Task.Delay(5000);
-                        const string nextBtnSelector = "button.x889kno.x1a8lsjc.x13jy36j.x64bnmy.x1n2onr6.x1rg5ohu.xk50ysn.x1f6kntn.xyesn5m.x1rl75mt.x19t5iym.xz7t8uv.x13xmedi.x178xt8z.x1lun4ml.xso031l.xpilrb4.x13fuv20.x18b5jzi.x1q0q8m5.x1t7ytsu.x1v8p93f.x1o3jo1z.x16stqrj.xv5lvn5.x1hl8ikr.xfagghw.x9dyr19.x9lcvmn.xbtce8p.xcjl5na.x14v0smp.x1k3x3db.xgm1il4.xuxw1ft.xv52azi";
-                        await cdp.ClickSelectorAsync(nextBtnSelector);
-                        Console.WriteLine("[WA] Нажал кнопку 'Далее'");
-
-                        string code = string.Empty;
-                        try
+                        var phoneInputSelector = await WaitForAnySelectorAsync(cdp, WhatsAppPhoneInputSelectors, TimeSpan.FromSeconds(45), CancellationToken.None);
+                        if (!string.IsNullOrEmpty(phoneInputSelector))
                         {
-                                var sw = Stopwatch.StartNew();
-                                while (sw.ElapsedMilliseconds < 60000 && string.IsNullOrEmpty(code))
+                            try { await cdp.ClickSelectorAsync(phoneInputSelector); } catch { }
+                            try { await cdp.FocusSelectorAsync(phoneInputSelector); } catch { }
+                            try { await cdp.ClearInputAsync(phoneInputSelector); } catch { }
+
+                            var setResult = await cdp.SetInputValueAsync(phoneInputSelector, formattedPhone);
+                            if (!setResult)
+                            {
+                                try { await cdp.ClickSelectorAsync(phoneInputSelector); } catch { }
+                                try { await cdp.ClearInputAsync(phoneInputSelector); } catch { }
+                                foreach (var ch in formattedPhone)
                                 {
-                                        var bodyText = await cdp.GetBodyTextAsync() ?? string.Empty;
-                                        var match = Regex.Match(bodyText, @"\b(\d{6,8}|[A-Z0-9]{4}-[A-Z0-9]{4,8})\b", RegexOptions.IgnoreCase);
-                                        if (match.Success)
-                                        {
-                                                code = match.Value;
-                                                break;
-                                        }
-                                        await Task.Delay(1000);
+                                    await cdp.TypeTextAsync(ch.ToString());
+                                    await Task.Delay(40);
                                 }
-                                if (string.IsNullOrEmpty(code))
-                                {
-                                        Console.WriteLine("[WA] Код не найден на странице");
-                                }
+                            }
+
+                            Console.WriteLine($"[WA] Ввёл номер {formattedPhone}");
                         }
-                        catch (Exception ex)
+                        else
                         {
-                                Console.WriteLine($"[WA] Ошибка получения кода: {ex.Message}");
+                            Console.WriteLine("[WA] Не удалось найти поле ввода номера телефона");
                         }
+
+                        var nextClicked = await TryClickButtonByTextsAsync(cdp, WhatsAppNextButtonTexts);
+                        if (!nextClicked)
+                        {
+                            var nextSelector = await WaitForAnySelectorAsync(cdp, WhatsAppNextButtonSelectors, TimeSpan.FromSeconds(20), CancellationToken.None);
+                            if (!string.IsNullOrEmpty(nextSelector))
+                            {
+                                nextClicked = await cdp.ClickSelectorAsync(nextSelector);
+                            }
+                        }
+                        Console.WriteLine(nextClicked
+                            ? "[WA] Нажал кнопку подтверждения номера"
+                            : "[WA] Не удалось определить кнопку подтверждения номера");
+
+                        var code = await WaitForWhatsAppVerificationCodeAsync(cdp, TimeSpan.FromMinutes(2), CancellationToken.None);
 
                         _userPhoneNumbers[telegramUserId] = phone;
                         var cancelKb = new InlineKeyboardMarkup(new[]
                         {
-                                new [] { InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth") }
+                            new [] { InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth") }
                         });
+
                         if (!string.IsNullOrEmpty(code))
                         {
-                                try
-                                {
-                                        await _botClient.SendTextMessageAsync(chatId, $"🔑 Код для номера {phone}:\n<code>{code}</code>", parseMode: ParseMode.Html, replyMarkup: cancelKb);
-                                }
-                                catch { }
+                            Console.WriteLine($"[WA] Обнаружен код для {phone}: {code}");
+                            try
+                            {
+                                await _botClient.SendTextMessageAsync(chatId, $"🔑 Код для номера {phone}:\n<code>{code}</code>", parseMode: ParseMode.Html, replyMarkup: cancelKb);
+                            }
+                            catch (Exception sendEx)
+                            {
+                                Console.WriteLine($"[WA] Ошибка отправки кода в Telegram: {sendEx.Message}");
+                            }
                         }
                         else
                         {
-                                Console.WriteLine("[WA] Код не получен, сообщение не отправлено");
+                            Console.WriteLine("[WA] Код не получен за отведённое время");
                         }
-                        }
+                    }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[WA] Не удалось нажать на 'Войти по номеру телефона': {ex.Message}");
+                        Console.WriteLine($"[WA] Ошибка автоматизации WhatsApp Web: {ex.Message}");
                     }
                 }
                 else
