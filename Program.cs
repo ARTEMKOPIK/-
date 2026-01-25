@@ -1146,7 +1146,14 @@ namespace MaxTelegramBot
             var digitsOnly = new string((message.Text ?? string.Empty).Where(char.IsDigit).ToArray());
             if (digitsOnly.Length != 6)
             {
-                await _botClient.SendTextMessageAsync(message.Chat.Id, "Введите ровно 6 цифр.", cancellationToken: cancellationToken);
+                var cancelKeyboard = new InlineKeyboardMarkup(new[]
+                {
+                    new []
+                    {
+                        InlineKeyboardButton.WithCallbackData("❌ Отменить авторизацию", "cancel_auth")
+                    }
+                });
+                await _botClient.SendTextMessageAsync(message.Chat.Id, "⚠️ *Введите ровно 6 цифр.*\n\nЕсли код не пришёл или вы хотите прервать процесс, нажмите кнопку ниже:", replyMarkup: cancelKeyboard, parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
                 return true; // перехватываем, пока ждём код
             }
             // 6 цифр — у нас есть актуальная сессия в userDataDir из ожидания
@@ -1902,7 +1909,8 @@ namespace MaxTelegramBot
                     }
                 }
                 
-                var welcomeMessage = $"Привет, {message.From.Username}! 👋\n\n" +
+                var name = !string.IsNullOrWhiteSpace(message.From.FirstName) ? message.From.FirstName : "друг";
+                var welcomeMessage = $"Привет, {name}! 👋\n\n" +
                                    "➡ Atlantis Grev — бот для прогрева аккаунтов MAX\n\n" +
                                    "Чтобы добавить аккаунт, нажми на кнопку ➕ Добавить аккаунт.\n\n" +
                                    "❓ Чтобы ознакомиться с работой бота, нажмите Информацию.";
@@ -2777,7 +2785,8 @@ namespace MaxTelegramBot
 
                 case "main_menu":
                     _adminActionState.Remove(callbackQuery.From.Id);
-                    var welcomeMessage = $"Привет, {callbackQuery.From.Username}! 👋\n\n" +
+                    var menuName = !string.IsNullOrWhiteSpace(callbackQuery.From.FirstName) ? callbackQuery.From.FirstName : "друг";
+                    var welcomeMessage = $"Привет, {menuName}! 👋\n\n" +
                                        "➡ Atlantis Grev — бот для прогрева аккаунтов MAX\n\n" +
                                        "Чтобы добавить аккаунт, нажми на кнопку ➕ Добавить аккаунт.\n\n" +
                                        "❓ Чтобы ознакомиться с работой бота, нажмите Информацию.";
@@ -3154,10 +3163,10 @@ namespace MaxTelegramBot
 
                 				case "add_account":
 					Console.WriteLine("Обрабатываю кнопку 'Добавить аккаунт'");
-                    var addAccountMessage = "➕ Добавление аккаунта\n\n" +
-                                          "Введите номер телефона в формате:\n" +
+                    var addAccountMessage = "➕ *Добавление аккаунта*\n\n" +
+                                          "Пожалуйста, введите номер телефона в формате:\n" +
                                           "`+79001234567`\n\n" +
-                                          "Или в любом другом удобном формате.";
+                                          "📱 _Просто отправьте номер сообщением, и я его сохраню._";
 
                     var addAccountKeyboard = new InlineKeyboardMarkup(new[]
                     {
@@ -3174,6 +3183,7 @@ namespace MaxTelegramBot
                             messageId: messageId,
                             text: addAccountMessage,
                             replyMarkup: addAccountKeyboard,
+                            parseMode: ParseMode.Markdown,
                             cancellationToken: cancellationToken
                         );
                     }
